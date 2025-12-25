@@ -1,0 +1,13 @@
+{
+  "files.associations": {
+    "*.gs": "javascript"
+  },
+  "javascript.suggest.autoImports": true,
+  "javascript.validate.enable": true,
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": false,
+    "editor.tabSize": 2
+  }
+}
+
