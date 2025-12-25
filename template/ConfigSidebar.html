@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 10px;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    input {
+      width: 100%;
+      padding: 5px;
+      box-sizing: border-box;
+    }
+    button {
+      background-color: #4285f4;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 10px;
+    }
+    button:hover {
+      background-color: #357ae8;
+    }
+    .status {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 4px;
+      display: none;
+    }
+    .success {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+  </style>
+</head>
+<body>
+  <h3>Configuration Odoo</h3>
+  
+  <form id="configForm">
+    <div class="form-group">
+      <label for="odooUrl">URL Odoo:</label>
+      <input type="text" id="odooUrl" placeholder="https://votre-instance.odoo.com" required>
+    </div>
+    
+    <div class="form-group">
+      <label for="odooDatabase">Base de données:</label>
+      <input type="text" id="odooDatabase" placeholder="nom_base" required>
+    </div>
+    
+    <div class="form-group">
+      <label for="odooUser">Utilisateur:</label>
+      <input type="text" id="odooUser" placeholder="admin" required>
+    </div>
+    
+    <div class="form-group">
+      <label for="odooApiKey">API Key:</label>
+      <input type="password" id="odooApiKey" placeholder="votre_api_key" required>
+    </div>
+    
+    <button type="submit">Enregistrer</button>
+  </form>
+  
+  <div id="status" class="status"></div>
+  
+  <script>
+    document.getElementById('configForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      
+      var config = {
+        url: document.getElementById('odooUrl').value,
+        database: document.getElementById('odooDatabase').value,
+        user: document.getElementById('odooUser').value,
+        apiKey: document.getElementById('odooApiKey').value
+      };
+      
+      google.script.run
+        .withSuccessHandler(function(result) {
+          var status = document.getElementById('status');
+          status.className = 'status success';
+          status.textContent = 'Configuration enregistrée avec succès!';
+          status.style.display = 'block';
+        })
+        .withFailureHandler(function(error) {
+          var status = document.getElementById('status');
+          status.className = 'status error';
+          status.textContent = 'Erreur: ' + error.message;
+          status.style.display = 'block';
+        })
+        .saveConfig(config);
+    });
+  </script>
+</body>
+</html>
+

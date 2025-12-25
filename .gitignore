@@ -1,0 +1,30 @@
+# Clasp
+.clasp.json
+.clasprc.json
+
+# Node modules (si utilisé)
+node_modules/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Secrets et credentials
+secrets.json
+credentials.json
+*.pem
+*.key
+
+# Fichiers temporaires
+*.tmp
+*.temp
+
