@@ -1,0 +1,16 @@
+{
+  "timeZone": "Europe/Paris",
+  "dependencies": {
+    "libraries": [
+      {
+        "userSymbol": "OdooRDD",
+        "libraryId": "1F--VxKI9WuT68bdU0pf-XvM77B1rFUCpqw925FXl1YAIsa_6-QwxJCZq",
+        "version": "0",
+        "developmentMode": true
+      }
+    ]
+  },
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8"
+}
+
