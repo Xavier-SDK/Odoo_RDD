@@ -23,7 +23,7 @@ function onOpen() {
       .addItem('Formatage', 'showFormattingMenu')
       .addItem('Enrichissement', 'showEnrichmentMenu')
       .addItem('Validation', 'showValidationMenu'))
-    .addSubMenu(ui.createMenu('Odoo')
+    .addSubMenu(ui.createMenu('Odoo Sync')
       .addItem('Echantillon onglet', 'testSheetSample')
       .addItem('Echantillon global', 'testGlobalSample')
       .addItem('Importation', 'importData'))
