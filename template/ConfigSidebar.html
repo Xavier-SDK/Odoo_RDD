@@ -4,30 +4,37 @@
   <base target="_top">
   <style>
     body {
-      font-family: Arial, sans-serif;
-      padding: 15px;
+      font-family: 'Google Sans', Roboto, Arial, sans-serif;
+      padding: 24px;
       font-size: 14px;
-    }
-    h3 {
-      margin-top: 0;
-      color: #1a73e8;
+      color: #202124;
+      background-color: #fff;
     }
     .form-group {
-      margin-bottom: 15px;
+      margin-bottom: 20px;
     }
     label {
       display: block;
-      margin-bottom: 5px;
-      font-weight: bold;
+      margin-bottom: 8px;
+      font-weight: 500;
+      font-size: 13px;
       color: #5f6368;
+      letter-spacing: 0.2px;
     }
     input {
       width: 100%;
-      padding: 8px;
+      padding: 10px 12px;
       box-sizing: border-box;
       border: 1px solid #dadce0;
       border-radius: 4px;
       font-size: 14px;
+      font-family: 'Google Sans', Roboto, Arial, sans-serif;
+      color: #202124;
+      background-color: #fff;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    input:hover {
+      border-color: #80868b;
     }
     input:focus {
       outline: none;
@@ -36,29 +43,42 @@
     }
     button {
       background-color: #1a73e8;
-      color: white;
+      color: #fff;
       border: none;
-      padding: 10px 20px;
+      padding: 10px 24px;
       cursor: pointer;
       width: 100%;
-      margin-top: 10px;
+      margin-top: 8px;
       border-radius: 4px;
       font-size: 14px;
       font-weight: 500;
+      font-family: 'Google Sans', Roboto, Arial, sans-serif;
+      letter-spacing: 0.25px;
+      text-transform: none;
+      box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+      transition: background-color 0.2s, box-shadow 0.2s;
     }
     button:hover {
       background-color: #1557b0;
+      box-shadow: 0 1px 3px 0 rgba(60, 64, 67, 0.3), 0 4px 8px 3px rgba(60, 64, 67, 0.15);
+    }
+    button:active {
+      background-color: #1557b0;
+      box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
     }
     button:disabled {
-      background-color: #dadce0;
+      background-color: #f1f3f4;
+      color: #80868b;
       cursor: not-allowed;
+      box-shadow: none;
     }
     .status {
-      margin-top: 15px;
-      padding: 12px;
+      margin-top: 16px;
+      padding: 12px 16px;
       border-radius: 4px;
       display: none;
       font-size: 13px;
+      line-height: 1.5;
     }
     .success {
       background-color: #e6f4ea;
@@ -70,14 +90,11 @@
       color: #c5221f;
       border: 1px solid #ea4335;
     }
-    .info {
-      background-color: #e8f0fe;
-      color: #1967d2;
-      border: 1px solid #1a73e8;
-      margin-bottom: 15px;
-      padding: 10px;
-      border-radius: 4px;
+    .info-text {
+      margin-bottom: 20px;
+      color: #5f6368;
       font-size: 13px;
+      line-height: 1.5;
     }
     .loading {
       display: none;
@@ -85,13 +102,19 @@
       color: #5f6368;
       margin-top: 10px;
     }
+    .error-field {
+      border-color: #ea4335 !important;
+      background-color: #fce8e6;
+    }
+    .error-field:focus {
+      border-color: #ea4335 !important;
+      box-shadow: 0 0 0 2px rgba(234, 67, 53, 0.1) !important;
+    }
   </style>
 </head>
 <body>
-  <h3>Configuration Odoo</h3>
-  
   <? if (!config.url || !config.database || !config.user || !config.apiKey) { ?>
-    <div class="info">
+    <div class="info-text">
       Veuillez renseigner les informations de connexion à votre instance Odoo.
     </div>
   <? } ?>
@@ -100,6 +123,7 @@
     <div class="form-group">
       <label for="odooUrl">URL Odoo:</label>
       <input type="text" id="odooUrl" 
+             class="<?= config.errorFields && config.errorFields.url ? 'error-field' : '' ?>"
              value="<?= config.url ?>" 
              placeholder="https://votre-instance.odoo.com" 
              required>
@@ -108,6 +132,7 @@
     <div class="form-group">
       <label for="odooDatabase">Base de données:</label>
       <input type="text" id="odooDatabase" 
+             class="<?= config.errorFields && config.errorFields.database ? 'error-field' : '' ?>"
              value="<?= config.database ?>" 
              placeholder="nom_base" 
              required>
@@ -116,6 +141,7 @@
     <div class="form-group">
       <label for="odooUser">Utilisateur:</label>
       <input type="text" id="odooUser" 
+             class="<?= config.errorFields && config.errorFields.user ? 'error-field' : '' ?>"
              value="<?= config.user ?>" 
              placeholder="admin" 
              required>
@@ -124,6 +150,7 @@
     <div class="form-group">
       <label for="odooApiKey">API Key:</label>
       <input type="password" id="odooApiKey" 
+             class="<?= config.errorFields && config.errorFields.apiKey ? 'error-field' : '' ?>"
              value="<?= config.apiKey ?>" 
              placeholder="votre_api_key" 
              required>
@@ -148,8 +175,14 @@
       loading.style.display = 'block';
       status.style.display = 'none';
       
+      // Normaliser l'URL (enlever le / à la fin)
+      var urlValue = document.getElementById('odooUrl').value.trim();
+      if (urlValue.endsWith('/')) {
+        urlValue = urlValue.slice(0, -1);
+      }
+      
       var config = {
-        url: document.getElementById('odooUrl').value.trim(),
+        url: urlValue,
         database: document.getElementById('odooDatabase').value.trim(),
         user: document.getElementById('odooUser').value.trim(),
         apiKey: document.getElementById('odooApiKey').value.trim()
@@ -160,27 +193,59 @@
           submitBtn.disabled = false;
           loading.style.display = 'none';
           
-          if (result.success) {
-            status.className = 'status success';
-            var message = result.message;
+          if (result.success && result.connectionTest && result.connectionTest.success) {
+            // Succès : fermer la sidebar et afficher la boîte de dialogue
+            google.script.run
+              .withSuccessHandler(function() {
+                google.script.host.close();
+              })
+              .showConnectionResult(result);
+          } else {
+            // Échec : afficher les erreurs dans la sidebar
+            status.className = 'status error';
+            var errorMessage = result.message || 'Erreur lors de la configuration';
             
-            // Afficher le résultat du test de connexion
-            if (result.connectionTest) {
-              if (result.connectionTest.success) {
-                message += '\n\n✅ Connexion réussie!';
-              } else {
-                message += '\n\n⚠️ Test de connexion: ' + result.connectionTest.message;
+            // Gérer les erreurs de validation de sécurité
+            if (result.validationErrors) {
+              // Construire un message détaillé avec les erreurs de validation
+              var validationMessages = [];
+              for (var field in result.validationErrors) {
+                if (result.validationErrors.hasOwnProperty(field)) {
+                  var fieldErrors = result.validationErrors[field];
+                  if (Array.isArray(fieldErrors) && fieldErrors.length > 0) {
+                    validationMessages.push(fieldErrors.join(', '));
+                  }
+                }
               }
+              if (validationMessages.length > 0) {
+                errorMessage = 'Erreur de sécurité : ' + validationMessages.join(' | ');
+              }
+            } else if (result.connectionTest && !result.connectionTest.success) {
+              errorMessage = result.connectionTest.message || errorMessage;
             }
             
-            status.textContent = message;
-            status.style.display = 'block';
+            // Réinitialiser toutes les classes d'erreur
+            document.getElementById('odooUrl').classList.remove('error-field');
+            document.getElementById('odooDatabase').classList.remove('error-field');
+            document.getElementById('odooUser').classList.remove('error-field');
+            document.getElementById('odooApiKey').classList.remove('error-field');
             
-            // Afficher une boîte de dialogue avec le résultat
-            google.script.run.showConnectionResult(result);
-          } else {
-            status.className = 'status error';
-            status.textContent = result.message;
+            // Identifier et marquer les champs problématiques
+            var errorFields = result.errorFields || {};
+            if (errorFields.url) {
+              document.getElementById('odooUrl').classList.add('error-field');
+            }
+            if (errorFields.database) {
+              document.getElementById('odooDatabase').classList.add('error-field');
+            }
+            if (errorFields.user) {
+              document.getElementById('odooUser').classList.add('error-field');
+            }
+            if (errorFields.apiKey) {
+              document.getElementById('odooApiKey').classList.add('error-field');
+            }
+            
+            status.textContent = errorMessage;
             status.style.display = 'block';
           }
         })
