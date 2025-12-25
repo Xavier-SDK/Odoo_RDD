@@ -5,7 +5,12 @@
   <style>
     body {
       font-family: Arial, sans-serif;
-      padding: 10px;
+      padding: 15px;
+      font-size: 14px;
+    }
+    h3 {
+      margin-top: 0;
+      color: #1a73e8;
     }
     .form-group {
       margin-bottom: 15px;
@@ -14,89 +19,174 @@
       display: block;
       margin-bottom: 5px;
       font-weight: bold;
+      color: #5f6368;
     }
     input {
       width: 100%;
-      padding: 5px;
+      padding: 8px;
       box-sizing: border-box;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    input:focus {
+      outline: none;
+      border-color: #1a73e8;
+      box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.1);
     }
     button {
-      background-color: #4285f4;
+      background-color: #1a73e8;
       color: white;
       border: none;
       padding: 10px 20px;
       cursor: pointer;
       width: 100%;
       margin-top: 10px;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 500;
     }
     button:hover {
-      background-color: #357ae8;
+      background-color: #1557b0;
+    }
+    button:disabled {
+      background-color: #dadce0;
+      cursor: not-allowed;
     }
     .status {
-      margin-top: 10px;
-      padding: 10px;
+      margin-top: 15px;
+      padding: 12px;
       border-radius: 4px;
       display: none;
+      font-size: 13px;
     }
     .success {
-      background-color: #d4edda;
-      color: #155724;
+      background-color: #e6f4ea;
+      color: #137333;
+      border: 1px solid #34a853;
     }
     .error {
-      background-color: #f8d7da;
-      color: #721c24;
+      background-color: #fce8e6;
+      color: #c5221f;
+      border: 1px solid #ea4335;
+    }
+    .info {
+      background-color: #e8f0fe;
+      color: #1967d2;
+      border: 1px solid #1a73e8;
+      margin-bottom: 15px;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .loading {
+      display: none;
+      text-align: center;
+      color: #5f6368;
+      margin-top: 10px;
     }
   </style>
 </head>
 <body>
   <h3>Configuration Odoo</h3>
   
+  <? if (!config.url || !config.database || !config.user || !config.apiKey) { ?>
+    <div class="info">
+      Veuillez renseigner les informations de connexion à votre instance Odoo.
+    </div>
+  <? } ?>
+  
   <form id="configForm">
     <div class="form-group">
       <label for="odooUrl">URL Odoo:</label>
-      <input type="text" id="odooUrl" placeholder="https://votre-instance.odoo.com" required>
+      <input type="text" id="odooUrl" 
+             value="<?= config.url ?>" 
+             placeholder="https://votre-instance.odoo.com" 
+             required>
     </div>
     
     <div class="form-group">
       <label for="odooDatabase">Base de données:</label>
-      <input type="text" id="odooDatabase" placeholder="nom_base" required>
+      <input type="text" id="odooDatabase" 
+             value="<?= config.database ?>" 
+             placeholder="nom_base" 
+             required>
     </div>
     
     <div class="form-group">
       <label for="odooUser">Utilisateur:</label>
-      <input type="text" id="odooUser" placeholder="admin" required>
+      <input type="text" id="odooUser" 
+             value="<?= config.user ?>" 
+             placeholder="admin" 
+             required>
     </div>
     
     <div class="form-group">
       <label for="odooApiKey">API Key:</label>
-      <input type="password" id="odooApiKey" placeholder="votre_api_key" required>
+      <input type="password" id="odooApiKey" 
+             value="<?= config.apiKey ?>" 
+             placeholder="votre_api_key" 
+             required>
     </div>
     
-    <button type="submit">Enregistrer</button>
+    <button type="submit" id="submitBtn">Valider et tester la connexion</button>
   </form>
   
+  <div class="loading" id="loading">Test de connexion en cours...</div>
   <div id="status" class="status"></div>
   
   <script>
     document.getElementById('configForm').addEventListener('submit', function(e) {
       e.preventDefault();
       
+      var submitBtn = document.getElementById('submitBtn');
+      var loading = document.getElementById('loading');
+      var status = document.getElementById('status');
+      
+      // Désactiver le bouton et afficher le loading
+      submitBtn.disabled = true;
+      loading.style.display = 'block';
+      status.style.display = 'none';
+      
       var config = {
-        url: document.getElementById('odooUrl').value,
-        database: document.getElementById('odooDatabase').value,
-        user: document.getElementById('odooUser').value,
-        apiKey: document.getElementById('odooApiKey').value
+        url: document.getElementById('odooUrl').value.trim(),
+        database: document.getElementById('odooDatabase').value.trim(),
+        user: document.getElementById('odooUser').value.trim(),
+        apiKey: document.getElementById('odooApiKey').value.trim()
       };
       
       google.script.run
         .withSuccessHandler(function(result) {
-          var status = document.getElementById('status');
-          status.className = 'status success';
-          status.textContent = 'Configuration enregistrée avec succès!';
-          status.style.display = 'block';
+          submitBtn.disabled = false;
+          loading.style.display = 'none';
+          
+          if (result.success) {
+            status.className = 'status success';
+            var message = result.message;
+            
+            // Afficher le résultat du test de connexion
+            if (result.connectionTest) {
+              if (result.connectionTest.success) {
+                message += '\n\n✅ Connexion réussie!';
+              } else {
+                message += '\n\n⚠️ Test de connexion: ' + result.connectionTest.message;
+              }
+            }
+            
+            status.textContent = message;
+            status.style.display = 'block';
+            
+            // Afficher une boîte de dialogue avec le résultat
+            google.script.run.showConnectionResult(result);
+          } else {
+            status.className = 'status error';
+            status.textContent = result.message;
+            status.style.display = 'block';
+          }
         })
         .withFailureHandler(function(error) {
-          var status = document.getElementById('status');
+          submitBtn.disabled = false;
+          loading.style.display = 'none';
           status.className = 'status error';
           status.textContent = 'Erreur: ' + error.message;
           status.style.display = 'block';

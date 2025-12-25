@@ -9,6 +9,20 @@
  */
 
 /**
+ * Namespace OdooRDD pour exposer les fonctions de la library
+ */
+var OdooRDD = {
+  /**
+   * Teste la connexion à Odoo
+   * @param {Object} config - Configuration avec url, database, user, apiKey
+   * @return {Object} Résultat avec success et message
+   */
+  testConnection: function(config) {
+    return testConnection(config);
+  }
+};
+
+/**
  * Initialisation de la bibliothèque
  */
 function init() {
