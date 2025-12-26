@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <link rel="stylesheet" href="https://ssl.gstatic.com/docs/script/css/add-ons1.css">
+    <style>
+      body { padding: 10px; font-family: sans-serif; }
+      .sheet-row { margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+      .sheet-name { font-weight: bold; display: block; margin-bottom: 5px; }
+      select { width: 100%; }
+      .actions { margin-top: 20px; }
+      #status { margin-top: 10px; font-size: 0.9em; }
+      .success { color: green; }
+      .error { color: red; }
+    </style>
+  </head>
+  <body>
+    <h3>Mapping Onglets → Modèles</h3>
+    <p class="secondary">Associez chaque onglet à un modèle Odoo.</p>
+    
+    <div id="mapping-list">
+      <? sheets.forEach(function(sheet) { ?>
+        <div class="sheet-row">
+          <label class="sheet-name"><?= sheet ?></label>
+          <select id="select-<?= sheet ?>" onchange="saveMapping('<?= sheet ?>')">
+            <option value="">-- Sélectionner un modèle --</option>
+            <? models.forEach(function(model) { ?>
+              <option value="<?= model.model ?>"><?= model.model ?> (<?= model.name ?>)</option>
+            <? }); ?>
+          </select>
+        </div>
+      <? }); ?>
+    </div>
+    
+    <div id="status"></div>
+    
+    <script>
+      function saveMapping(sheetName) {
+        var modelName = document.getElementById('select-' + sheetName).value;
+        var statusDiv = document.getElementById('status');
+        
+        statusDiv.innerHTML = 'Enregistrement...';
+        statusDiv.className = '';
+        
+        google.script.run
+          .withSuccessHandler(function(result) {
+            statusDiv.innerHTML = '✅ Enregistré pour ' + sheetName;
+            statusDiv.className = 'success';
+          })
+          .withFailureHandler(function(err) {
+            statusDiv.innerHTML = '❌ Erreur: ' + err;
+            statusDiv.className = 'error';
+          })
+          .saveTabMappingBridge(sheetName, modelName);
+      }
+    </script>
+  </body>
+</html>

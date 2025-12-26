@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <base target="_top">
   <style>
@@ -10,9 +11,11 @@
       color: #202124;
       background-color: #fff;
     }
+
     .form-group {
       margin-bottom: 20px;
     }
+
     label {
       display: block;
       margin-bottom: 8px;
@@ -21,6 +24,7 @@
       color: #5f6368;
       letter-spacing: 0.2px;
     }
+
     input {
       width: 100%;
       padding: 10px 12px;
@@ -33,14 +37,17 @@
       background-color: #fff;
       transition: border-color 0.2s, box-shadow 0.2s;
     }
+
     input:hover {
       border-color: #80868b;
     }
+
     input:focus {
       outline: none;
       border-color: #1a73e8;
       box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.1);
     }
+
     button {
       background-color: #1a73e8;
       color: #fff;
@@ -58,20 +65,24 @@
       box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
       transition: background-color 0.2s, box-shadow 0.2s;
     }
+
     button:hover {
       background-color: #1557b0;
       box-shadow: 0 1px 3px 0 rgba(60, 64, 67, 0.3), 0 4px 8px 3px rgba(60, 64, 67, 0.15);
     }
+
     button:active {
       background-color: #1557b0;
       box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
     }
+
     button:disabled {
       background-color: #f1f3f4;
       color: #80868b;
       cursor: not-allowed;
       box-shadow: none;
     }
+
     .status {
       margin-top: 16px;
       padding: 12px 16px;
@@ -80,123 +91,120 @@
       font-size: 13px;
       line-height: 1.5;
     }
+
     .success {
       background-color: #e6f4ea;
       color: #137333;
       border: 1px solid #34a853;
     }
+
     .error {
       background-color: #fce8e6;
       color: #c5221f;
       border: 1px solid #ea4335;
     }
+
     .info-text {
       margin-bottom: 20px;
       color: #5f6368;
       font-size: 13px;
       line-height: 1.5;
     }
+
     .loading {
       display: none;
       text-align: center;
       color: #5f6368;
       margin-top: 10px;
     }
+
     .error-field {
       border-color: #ea4335 !important;
       background-color: #fce8e6;
     }
+
     .error-field:focus {
       border-color: #ea4335 !important;
       box-shadow: 0 0 0 2px rgba(234, 67, 53, 0.1) !important;
     }
   </style>
 </head>
+
 <body>
   <? if (!config.url || !config.database || !config.user || !config.apiKey) { ?>
-    <div class="info-text">
-      Veuillez renseigner les informations de connexion à votre instance Odoo.
-    </div>
+  <div class="info-text">
+    Veuillez renseigner les informations de connexion à votre instance Odoo.
+  </div>
   <? } ?>
-  
+
   <form id="configForm">
     <div class="form-group">
       <label for="odooUrl">URL Odoo:</label>
-      <input type="text" id="odooUrl" 
-             class="<?= config.errorFields && config.errorFields.url ? 'error-field' : '' ?>"
-             value="<?= config.url ?>" 
-             placeholder="https://votre-instance.odoo.com" 
-             required>
+      <input type="text" id="odooUrl" class="<?= config.errorFields && config.errorFields.url ? 'error-field' : '' ?>"
+        value="<?= config.url ?>" placeholder="https://votre-instance.odoo.com" maxlength="50" required>
     </div>
-    
+
     <div class="form-group">
       <label for="odooDatabase">Base de données:</label>
-      <input type="text" id="odooDatabase" 
-             class="<?= config.errorFields && config.errorFields.database ? 'error-field' : '' ?>"
-             value="<?= config.database ?>" 
-             placeholder="nom_base" 
-             required>
+      <input type="text" id="odooDatabase"
+        class="<?= config.errorFields && config.errorFields.database ? 'error-field' : '' ?>"
+        value="<?= config.database ?>" placeholder="nom_base" maxlength="50" required>
     </div>
-    
+
     <div class="form-group">
       <label for="odooUser">Utilisateur:</label>
-      <input type="text" id="odooUser" 
-             class="<?= config.errorFields && config.errorFields.user ? 'error-field' : '' ?>"
-             value="<?= config.user ?>" 
-             placeholder="admin" 
-             required>
+      <input type="text" id="odooUser" class="<?= config.errorFields && config.errorFields.user ? 'error-field' : '' ?>"
+        value="<?= config.user ?>" placeholder="admin" maxlength="50" required>
     </div>
-    
+
     <div class="form-group">
       <label for="odooApiKey">API Key:</label>
-      <input type="password" id="odooApiKey" 
-             class="<?= config.errorFields && config.errorFields.apiKey ? 'error-field' : '' ?>"
-             value="<?= config.apiKey ?>" 
-             placeholder="votre_api_key" 
-             required>
+      <input type="password" id="odooApiKey"
+        class="<?= config.errorFields && config.errorFields.apiKey ? 'error-field' : '' ?>" value="<?= config.apiKey ?>"
+        placeholder="votre_api_key" maxlength="50" required>
     </div>
-    
+
     <button type="submit" id="submitBtn">Valider et tester la connexion</button>
   </form>
-  
+
   <div class="loading" id="loading">Test de connexion en cours...</div>
   <div id="status" class="status"></div>
-  
+
   <script>
-    document.getElementById('configForm').addEventListener('submit', function(e) {
+    document.getElementById('configForm').addEventListener('submit', function (e) {
       e.preventDefault();
-      
+
       var submitBtn = document.getElementById('submitBtn');
       var loading = document.getElementById('loading');
       var status = document.getElementById('status');
-      
+
       // Désactiver le bouton et afficher le loading
       submitBtn.disabled = true;
       loading.style.display = 'block';
       status.style.display = 'none';
-      
+
       // Normaliser l'URL (enlever le / à la fin)
       var urlValue = document.getElementById('odooUrl').value.trim();
       if (urlValue.endsWith('/')) {
         urlValue = urlValue.slice(0, -1);
       }
-      
+
       var config = {
         url: urlValue,
         database: document.getElementById('odooDatabase').value.trim(),
         user: document.getElementById('odooUser').value.trim(),
         apiKey: document.getElementById('odooApiKey').value.trim()
       };
-      
+
       google.script.run
-        .withSuccessHandler(function(result) {
+        .withSuccessHandler(function (result) {
           submitBtn.disabled = false;
           loading.style.display = 'none';
-          
+
           if (result.success && result.connectionTest && result.connectionTest.success) {
             // Succès : fermer la sidebar et afficher la boîte de dialogue
             google.script.run
-              .withSuccessHandler(function() {
+              .withSuccessHandler(function () {
                 google.script.host.close();
               })
               .showConnectionResult(result);
@@ -204,7 +212,7 @@
             // Échec : afficher les erreurs dans la sidebar
             status.className = 'status error';
             var errorMessage = result.message || 'Erreur lors de la configuration';
-            
+
             // Gérer les erreurs de validation de sécurité
             if (result.validationErrors) {
               // Construire un message détaillé avec les erreurs de validation
@@ -223,13 +231,13 @@
             } else if (result.connectionTest && !result.connectionTest.success) {
               errorMessage = result.connectionTest.message || errorMessage;
             }
-            
+
             // Réinitialiser toutes les classes d'erreur
             document.getElementById('odooUrl').classList.remove('error-field');
             document.getElementById('odooDatabase').classList.remove('error-field');
             document.getElementById('odooUser').classList.remove('error-field');
             document.getElementById('odooApiKey').classList.remove('error-field');
-            
+
             // Identifier et marquer les champs problématiques
             var errorFields = result.errorFields || {};
             if (errorFields.url) {
@@ -244,12 +252,12 @@
             if (errorFields.apiKey) {
               document.getElementById('odooApiKey').classList.add('error-field');
             }
-            
+
             status.textContent = errorMessage;
             status.style.display = 'block';
           }
         })
-        .withFailureHandler(function(error) {
+        .withFailureHandler(function (error) {
           submitBtn.disabled = false;
           loading.style.display = 'none';
           status.className = 'status error';
@@ -260,5 +268,5 @@
     });
   </script>
 </body>
-</html>
 
+</html>

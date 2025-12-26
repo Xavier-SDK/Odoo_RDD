@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <base target="_top">
+    <link rel="stylesheet" href="https://ssl.gstatic.com/docs/script/css/add-ons1.css">
+    <style>
+        body {
+            padding: 10px;
+            font-family: sans-serif;
+        }
+
+        .model-info {
+            background: #f3f3f3;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+
+        .model-name {
+            font-weight: bold;
+        }
+
+        .actions {
+            margin-top: 20px;
+        }
+
+        #status {
+            margin-top: 10px;
+            font-size: 0.9em;
+        }
+
+        .success {
+            color: green;
+        }
+
+        .error {
+            color: red;
+        }
+
+        .help-text {
+            font-size: 0.85em;
+            color: #666;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <h3>Mapping Colonnes:
+        <?= sheetName ?>
+    </h3>
+
+    <div class="model-info">
+        Modèle Odoo associé:<br>
+        <span class="model-name">
+            <?= modelName ?>
+        </span>
+    </div>
+
+    <p>Cette action va ajouter une ligne de validation (ligne 2) à l'onglet avec des menus déroulants contenant tous les
+        champs Odoo disponibles pour ce modèle.</p>
+
+    <div class="actions">
+        <button class="action" onclick="applyMapping()">Appliquer la ligne de validation</button>
+    </div>
+
+    <div id="status"></div>
+
+    <div class="help-text">
+        <strong>Note:</strong> Une fois la ligne de validation ajoutée, sélectionnez simplement le champ Odoo
+        correspondant dans le menu déroulant au-dessus de chaque colonne.
+    </div>
+
+    <script>
+        function applyMapping() {
+            var statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = 'Traitement en cours...';
+            statusDiv.className = '';
+
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    if (result.success) {
+                        statusDiv.innerHTML = '✅ Ligne de validation appliquée avec succès.';
+                        statusDiv.className = 'success';
+                    } else {
+                        statusDiv.innerHTML = '❌ Erreur: ' + result.message;
+                        statusDiv.className = 'error';
+                    }
+                })
+                .withFailureHandler(function (err) {
+                    statusDiv.innerHTML = '❌ Erreur technique: ' + err;
+                    statusDiv.className = 'error';
+                })
+                .applyMappingBridge('<?= sheetName ?>', '<?= modelName ?>');
+        }
+    </script>
+</body>
+
+</html>
