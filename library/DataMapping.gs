@@ -1,5 +1,6 @@
 /**
  * DataMapping - Module de gestion du mapping des données
+ * Utilise les smart tables de l'onglet Paramètres
  */
 
 /**
@@ -8,32 +9,7 @@
  * @param {String} modelName - Nom du modèle Odoo
  */
 function saveTabMapping(sheetName, modelName) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var paramsSheet = ss.getSheetByName('Paramètres');
-  
-  if (!paramsSheet) {
-    throw new Error('Onglet "Paramètres" introuvable');
-  }
-  
-  var data = paramsSheet.getDataRange().getValues();
-  var mappingRow = -1;
-  var startRow = 10; // On commence les mappings à la ligne 10 pour laisser de la place à la config
-  
-  for (var i = startRow; i < data.length; i++) {
-    if (data[i][0] === 'TAB_MAP:' + sheetName) {
-      mappingRow = i + 1;
-      break;
-    }
-  }
-  
-  if (mappingRow === -1) {
-    mappingRow = data.length + 1;
-    if (mappingRow < startRow) mappingRow = startRow;
-  }
-  
-  paramsSheet.getRange(mappingRow, 1).setValue('TAB_MAP:' + sheetName);
-  paramsSheet.getRange(mappingRow, 2).setValue(modelName);
-  
+  setOdooModel(sheetName, modelName);
   return { success: true };
 }
 
@@ -43,17 +19,7 @@ function saveTabMapping(sheetName, modelName) {
  * @return {String|null} Nom du modèle
  */
 function getTabMapping(sheetName) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var paramsSheet = ss.getSheetByName('Paramètres');
-  if (!paramsSheet) return null;
-  
-  var data = paramsSheet.getDataRange().getValues();
-  for (var i = 0; i < data.length; i++) {
-    if (data[i][0] === 'TAB_MAP:' + sheetName) {
-      return data[i][1];
-    }
-  }
-  return null;
+  return getOdooModel(sheetName);
 }
 
 /**
@@ -63,28 +29,10 @@ function getTabMapping(sheetName) {
  * @param {String} fieldName - Nom du champ technique Odoo
  */
 function saveColumnMapping(sheetName, columnName, fieldName) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var paramsSheet = ss.getSheetByName('Paramètres');
-  if (!paramsSheet) throw new Error('Onglet "Paramètres" introuvable');
-  
-  var key = 'COL_MAP:' + sheetName + ':' + columnName;
-  var data = paramsSheet.getDataRange().getValues();
-  var mappingRow = -1;
-  
-  for (var i = 0; i < data.length; i++) {
-    if (data[i][0] === key) {
-      mappingRow = i + 1;
-      break;
-    }
-  }
-  
-  if (mappingRow === -1) {
-    mappingRow = data.length + 1;
-  }
-  
-  paramsSheet.getRange(mappingRow, 1).setValue(key);
-  paramsSheet.getRange(mappingRow, 2).setValue(fieldName);
-  
+  // L'en-tête est le même que columnName dans notre cas
+  // Si vous voulez différencier l'en-tête affiché du nom technique, 
+  // passez-le en paramètre supplémentaire
+  setOdooField(sheetName, columnName, columnName, fieldName);
   return { success: true };
 }
 
@@ -94,27 +42,13 @@ function saveColumnMapping(sheetName, columnName, fieldName) {
  * @return {Object} Dictionnaire {columnName: fieldName}
  */
 function getColumnMappings(sheetName) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var paramsSheet = ss.getSheetByName('Paramètres');
-  if (!paramsSheet) return {};
-  
-  var prefix = 'COL_MAP:' + sheetName + ':';
-  var mappings = {};
-  var data = paramsSheet.getDataRange().getValues();
-  
-  for (var i = 0; i < data.length; i++) {
-    if (data[i][0] && data[i][0].toString().startsWith(prefix)) {
-      var colName = data[i][0].toString().substring(prefix.length);
-      mappings[colName] = data[i][1];
-    }
-  }
-  return mappings;
+  return getOdooFields(sheetName);
 }
 
 /**
  * Applique visuellement le mapping sur un onglet via une ligne de validation
  * @param {String} sheetName - Nom de l'onglet
- * @param {Array} fields - Liste des champs formatés {id, text}
+ * @param {Array} fields - Liste des champs formatés {id, text, string}
  */
 function applyValidationRow(sheetName, fields) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();

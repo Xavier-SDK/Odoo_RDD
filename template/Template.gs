@@ -23,22 +23,16 @@ function saveConfig(config) {
   return OdooRDD.template_saveConfig(config); 
 }
 
-function showTabMappingSidebar() {
-  var html = OdooRDD.template_showTabMappingSidebar();
-  if (html) SpreadsheetApp.getUi().showSidebar(html);
+// --- Fonctions supprimées : showTabMappingSidebar, showColumnMappingSidebar ---
+
+// Bridge pour la sidebar contextuelle (Unique)
+function showContextualMappingSidebar() {
+  var html = OdooRDD.template_showContextualMappingSidebar();
+  SpreadsheetApp.getUi().showSidebar(html);
 }
 
-function showColumnMappingSidebar() {
-  var html = OdooRDD.template_showColumnMappingSidebar();
-  if (html) SpreadsheetApp.getUi().showSidebar(html);
-}
-
-function saveTabMappingBridge(sheetName, modelName) {
-  return OdooRDD.template_saveTabMappingBridge(sheetName, modelName);
-}
-
-function applyMappingBridge(sheetName, modelName) {
-  return OdooRDD.template_applyMappingBridge(sheetName, modelName);
+function showPlaceholder() {
+  SpreadsheetApp.getUi().alert("Fonctionnalité en cours de développement");
 }
 
 function testConnectionFromMenu() {
@@ -51,6 +45,29 @@ function debugGetModels() {
   Logger.log(models);
 }
 
-function showPlaceholder() {
-  SpreadsheetApp.getUi().alert("Fonctionnalité en cours de développement");
+
+// --- Mapping Contextuel (Lazy Loading) ---
+
+function getInitialMappingData(sheetName) {
+  return OdooRDD.getInitialMappingData(sheetName);
+}
+
+function getContextualModels(forceRefresh) {
+  return OdooRDD.getContextualModels(forceRefresh);
+}
+
+function getModelFields(modelName, forceRefresh) {
+  return OdooRDD.getModelFields(modelName, forceRefresh);
+}
+
+function saveContextualMapping(sheetName, modelName, columnMappings) {
+  return OdooRDD.saveContextualMapping(sheetName, modelName, columnMappings);
+}
+
+function getFieldsForModel(modelName) {
+  return OdooRDD.getFieldsForModel(modelName);
+}
+
+function testMappingData(sheetName, modelName, columnMappings) {
+  return OdooRDD.testMappingData(sheetName, modelName, columnMappings);
 }

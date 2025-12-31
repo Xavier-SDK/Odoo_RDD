@@ -17,7 +17,7 @@ function getModels(config, options) {
   
   var models = execute_kw(config, 'ir.model', 'search_read', [
     [], // Domain: all models
-    ['model', 'name', 'model_class', 'transient'] // Fields to read
+    ['model', 'name', 'transient'] // Fields to read
   ]);
   
   if (!models || !Array.isArray(models)) {
@@ -62,7 +62,7 @@ function getFields(config, model) {
 /**
  * Formate les champs pour une utilisation dans les menus déroulants Google Sheets
  * @param {Object} fields - Dictionnaire des champs retourné par fields_get
- * @return {Array} Liste triée d'objets {id, text}
+ * @return {Array} Liste triée d'objets {id, string, text, type, icon}
  */
 function formatFieldsForUI(fields) {
   var formatted = [];
@@ -72,11 +72,41 @@ function formatFieldsForUI(fields) {
     
     formatted.push({
       id: fieldName,
-      text: field.string + ' (' + fieldName + ') [' + field.type + ']'
+      string: field.string || fieldName,  // Nom français du champ
+      text: field.string + ' (' + fieldName + ') [' + field.type + ']',
+      type: field.type,
+      icon: getFieldTypeIcon(field.type)
     });
   }
   
   return formatted.sort(function(a, b) {
     return a.text.localeCompare(b.text);
   });
+}
+
+/**
+ * Retourne l'icône FontAwesome correspondant à un type de champ Odoo
+ * @param {String} fieldType - Type du champ Odoo
+ * @return {String} Classe d'icône FontAwesome
+ */
+function getFieldTypeIcon(fieldType) {
+  var iconMap = {
+    'char': 'fa-font',
+    'text': 'fa-align-left',
+    'html': 'fa-code',
+    'integer': 'fa-calculator',
+    'float': 'fa-calculator',
+    'monetary': 'fa-money',
+    'boolean': 'fa-check-square',
+    'date': 'fa-calendar',
+    'datetime': 'fa-calendar-o',
+    'selection': 'fa-list',
+    'many2one': 'fa-link',
+    'one2many': 'fa-sitemap',
+    'many2many': 'fa-list-ul',
+    'binary': 'fa-file',
+    'reference': 'fa-link'
+  };
+  
+  return iconMap[fieldType] || 'fa-question-circle';
 }

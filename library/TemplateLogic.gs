@@ -1,6 +1,9 @@
 /**
- * TemplateLogic - Logique métier du Template déplacée dans la bibliothèque
+ * TemplateLogic - Logique métier du Template
+ * Version nettoyée - Fusion UIService + suppression code obsolète
  */
+
+// ===== LIFECYCLE HOOKS =====
 
 function template_onEdit(e) {
   try {
@@ -8,24 +11,17 @@ function template_onEdit(e) {
     var sheet = range.getSheet();
     var sheetName = sheet.getName();
     
-    // On ne surveille que la ligne 2 des onglets de données
     if (range.getRow() === 2 && sheetName !== 'Paramètres' && sheetName !== 'Log' && sheetName !== 'Rapport Tests') {
       var col = range.getColumn();
       var header = sheet.getRange(1, col).getValue();
       var value = range.getValue();
       
       if (header && value) {
-        // Extraire l'ID du champ technique (entre parenthèses ou via parsing)
-        // Le format est "Label (field_name) [type]"
         var fieldMatch = value.match(/\((.*?)\)/);
         if (fieldMatch && fieldMatch[1]) {
           var fieldName = fieldMatch[1];
-          // Appel interne à la fonction de mapping (supposée être dans DataMapping.gs)
           if (typeof saveColumnMapping === 'function') {
             saveColumnMapping(sheetName, header, fieldName);
-          } else {
-             // Fallback pour la référence globale
-             console.log("saveColumnMapping function not found internally");
           }
         }
       }
@@ -37,13 +33,11 @@ function template_onEdit(e) {
 
 function template_onOpen(e) {
   try {
-    // Créer le trigger installable si nécessaire
     if (!e || !e.authMode || e.authMode === ScriptApp.AuthMode.NONE) {
       template_createOnOpenTrigger();
-      return; // Sortir, le trigger sera exécuté à la prochaine ouverture
+      return;
     }
     
-    // Initialiser l'onglet Paramètres
     template_ensureParamsSheet();
     
     var config = template_getOdooConfig();
@@ -70,9 +64,6 @@ function template_onOpen(e) {
 
 function template_createOnOpenTrigger() {
   try {
-    // Note: ScriptApp.newTrigger dans une librairie crée le trigger pour la librairie.
-    // L'utilisateur devra peut-être l'autoriser explicitement.
-    // Pour l'instant, on garde la logique telle quelle.
     var triggers = ScriptApp.getProjectTriggers();
     triggers.forEach(function(trigger) {
       if (trigger.getHandlerFunction() === 'onOpen') {
@@ -82,9 +73,6 @@ function template_createOnOpenTrigger() {
       }
     });
     
-    // Attention: ceci déclenchera 'onOpen' du Template si exécuté dans le contexte du scripts container ?
-    // Non, ça déclenche la fonction du script qui appelle.
-    // On suppose que le Template a une fonction 'onOpen'.
     ScriptApp.newTrigger('onOpen').onOpen().create();
     Logger.log('Trigger installable créé');
   } catch (error) {
@@ -92,12 +80,16 @@ function template_createOnOpenTrigger() {
   }
 }
 
+// ===== PARAMETERS MANAGEMENT =====
+
 function template_ensureParamsSheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var paramsSheet = ss.getSheetByName('Paramètres');
   
   if (!paramsSheet) {
     paramsSheet = ss.insertSheet('Paramètres');
+    
+    // Headers for PARAMETERS table (A1:B1)
     paramsSheet.getRange('A1').setValue('Paramètre');
     paramsSheet.getRange('B1').setValue('Valeur');
     paramsSheet.getRange('A2').setValue('Odoo URL');
@@ -105,8 +97,35 @@ function template_ensureParamsSheet() {
     paramsSheet.getRange('A4').setValue('Odoo User');
     paramsSheet.getRange('A5').setValue('Odoo API Key');
     paramsSheet.getRange('A1:B1').setFontWeight('bold');
-    paramsSheet.setColumnWidth(1, 200);
-    paramsSheet.setColumnWidth(2, 300);
+    
+    // Headers for ODOO_MODELS table (D1:E1)
+    paramsSheet.getRange('D1').setValue('Onglets');
+    paramsSheet.getRange('E1').setValue('Modèle Odoo');
+    paramsSheet.getRange('D1:E1').setFontWeight('bold');
+    
+    // Headers for ODOO_FIELDS table (G1:J1)
+    paramsSheet.getRange('G1').setValue('Onglet');
+    paramsSheet.getRange('H1').setValue('Colonne');
+    paramsSheet.getRange('I1').setValue('Entête');
+    paramsSheet.getRange('J1').setValue('Champ Odoo');
+    paramsSheet.getRange('G1:J1').setFontWeight('bold');
+    
+    // Headers for ODOO_CACHE table (L1:M1)
+    paramsSheet.getRange('L1').setValue('models');
+    paramsSheet.getRange('M1').setValue('fields');
+    paramsSheet.getRange('L1:M1').setFontWeight('bold');
+    
+    // Column widths
+    paramsSheet.setColumnWidth(1, 200);  // A
+    paramsSheet.setColumnWidth(2, 300);  // B
+    paramsSheet.setColumnWidth(4, 150);  // D
+    paramsSheet.setColumnWidth(5, 200);  // E
+    paramsSheet.setColumnWidth(7, 120);  // G
+    paramsSheet.setColumnWidth(8, 120);  // H
+    paramsSheet.setColumnWidth(9, 150);  // I
+    paramsSheet.setColumnWidth(10, 150); // J
+    paramsSheet.setColumnWidth(12, 200); // L
+    paramsSheet.setColumnWidth(13, 500); // M
   }
   
   try {
@@ -115,67 +134,38 @@ function template_ensureParamsSheet() {
 }
 
 function template_getOdooConfig() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var paramsSheet = ss.getSheetByName('Paramètres');
-  
-  if (!paramsSheet) {
+  try {
+    var url = getParameter('Odoo URL') || '';
+    var database = getParameter('Odoo Database') || '';
+    var user = getParameter('Odoo User') || '';
+    var apiKey = getParameter('Odoo API Key') || '';
+    
+    return {
+      url: normalizeOdooUrl(url),
+      database: database,
+      user: user,
+      apiKey: apiKey
+    };
+  } catch (e) {
+    Logger.log('Erreur dans template_getOdooConfig: ' + e.toString());
     return { url: '', database: '', user: '', apiKey: '' };
   }
-  
-  var url = (paramsSheet.getRange('B2').getValue() || '').toString().trim();
-  var database = (paramsSheet.getRange('B3').getValue() || '').toString().trim();
-  var user = (paramsSheet.getRange('B4').getValue() || '').toString().trim();
-  var apiKey = (paramsSheet.getRange('B5').getValue() || '').toString().trim();
-  
-  // Utilisation de normalizeOdooUrl qui devrait être disponible dans OdooConnection.gs
-  return {
-    url: normalizeOdooUrl(url), // Fonction globale ou locale à la lib
-    database: database,
-    user: user,
-    apiKey: apiKey
-  };
 }
 
 function template_saveConfig(config) {
   try {
-    // Validation via DataValidation.gs (interne)
-    var validation;
-    if (typeof validateConfig === 'function') {
-      validation = validateConfig(config);
-    } else {
-       // Fallback
-       if (!config.url || !config.database || !config.user || !config.apiKey) {
-         return { success: false, message: 'Configuration incomplète.' };
-       }
-       validation = { isValid: true, sanitizedConfig: config, errors: {} };
+    if (!config.url || !config.database || !config.user || !config.apiKey) {
+      return { success: false, message: 'Configuration incomplète.' };
     }
     
-    if (!validation.isValid) {
-      var errorFields = {};
-      for (var field in validation.errors) {
-        if (validation.errors.hasOwnProperty(field)) {
-          errorFields[field] = true;
-        }
-      }
-      return {
-        success: false,
-        message: 'Erreur de validation de sécurité.',
-        validationErrors: validation.errors,
-        errorFields: errorFields
-      };
-    }
-    
-    config = validation.sanitizedConfig;
     config.url = normalizeOdooUrl(config.url);
     
     template_ensureParamsSheet();
-    var paramsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Paramètres');
     
-    paramsSheet.getRange('B2').setValue(config.url || '');
-    paramsSheet.getRange('B3').setValue(config.database || '');
-    paramsSheet.getRange('B4').setValue(config.user || '');
-    paramsSheet.getRange('B5').setValue(config.apiKey || '');
-    paramsSheet.hideSheet();
+    setParameter('Odoo URL', config.url);
+    setParameter('Odoo Database', config.database);
+    setParameter('Odoo User', config.user);
+    setParameter('Odoo API Key', config.apiKey);
     
     var testResult = template_testOdooConnection(config);
     var errorFields = template_identifyErrorFields(config, testResult);
@@ -215,7 +205,6 @@ function template_testOdooConnection(config) {
     }
     config.url = normalizeOdooUrl(config.url);
     
-    // Appel à la fonction de test interne (OdooConnection.gs)
     if (typeof testConnection === 'function') {
       return testConnection(config);
     } else {
@@ -243,7 +232,6 @@ function template_identifyErrorFields(config, testResult) {
       errorFields.url = true;
     } 
     
-    // Toujours fusionner les erreur spécifiques rapportées par la fonction de test
     if (testResult.errorFields) {
       for (var f in testResult.errorFields) {
         errorFields[f] = true;
@@ -253,11 +241,34 @@ function template_identifyErrorFields(config, testResult) {
   return errorFields;
 }
 
+// ===== UI SERVICE (Fusionné depuis UIService.gs) =====
+
 function template_showConfigSidebar(errorFields) {
   var config = template_getOdooConfig();
   config.errorFields = errorFields || {};
-  return createConfigSidebar(config); // Appel Interne UIService
+  return createConfigSidebar(config);
 }
+
+function template_showContextualMappingSidebar() {
+  return createContextualMappingSidebar();
+}
+
+function createConfigSidebar(config) {
+  var html = HtmlService.createTemplateFromFile('ConfigSidebar');
+  html.config = config;
+  return html.evaluate()
+    .setTitle('Configuration Odoo')
+    .setWidth(350);
+}
+
+function createContextualMappingSidebar() {
+  var html = HtmlService.createTemplateFromFile('ContextualMappingView');
+  return html.evaluate()
+    .setTitle('Mapping Contextuel')
+    .setWidth(400);
+}
+
+// ===== MENU =====
 
 function template_createOdooMenu(statusEmoji) {
   var ui = SpreadsheetApp.getUi();
@@ -273,8 +284,7 @@ function template_createOdooMenu(statusEmoji) {
     .addItem('Configuration', 'showConfigSidebar')
     .addSeparator()
     .addSubMenu(ui.createMenu('Traitement des données')
-      .addItem('Mapping Onglets', 'showTabMappingSidebar')
-      .addItem('Mapping Colonnes', 'showColumnMappingSidebar')
+      .addItem('💡 Mapping', 'showContextualMappingSidebar')
       .addSeparator()
       .addItem('Dédoublonnage', 'showPlaceholder')
       .addItem('Formatage', 'showPlaceholder')
@@ -291,58 +301,7 @@ function template_createOdooMenu(statusEmoji) {
     .addToUi();
 }
 
-function template_showTabMappingSidebar() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheets = ss.getSheets().filter(function(s) { 
-    return s.getName() !== 'Paramètres' && s.getName() !== 'Log' && s.getName() !== 'Rapport Tests'; 
-  }).map(function(s) { return s.getName(); });
-  
-  var config = template_getOdooConfig();
-  var models = [];
-  try {
-    if (typeof getModels === 'function') {
-      models = getModels(config, { excludeTech: true });
-    }
-  } catch (e) {
-    SpreadsheetApp.getUi().alert('Erreur: ' + e.toString());
-  }
-  
-  return createTabMappingSidebar(sheets, models); // Interne UIService
-}
-
-function template_showColumnMappingSidebar() {
-  var activeSheet = SpreadsheetApp.getActiveSheet();
-  var sheetName = activeSheet.getName();
-  
-  if (sheetName === 'Paramètres' || sheetName === 'Log' || sheetName === 'Rapport Tests') {
-    SpreadsheetApp.getUi().alert('Sélectionnez un onglet de données pour mapper les colonnes.');
-    return null;
-  }
-  
-  var modelName = null;
-  if (typeof getTabMapping === 'function') {
-     modelName = getTabMapping(sheetName);
-  }
-  
-  if (!modelName) {
-    SpreadsheetApp.getUi().alert('Veuillez d\'abord mapper cet onglet à un modèle Odoo via "Mapping Onglets".');
-    return null;
-  }
-  
-  var config = template_getOdooConfig();
-  var fields = [];
-  try {
-    if (typeof getFields === 'function' && typeof formatFieldsForUI === 'function') {
-      var rawFields = getFields(config, modelName);
-      fields = formatFieldsForUI(rawFields);
-    }
-  } catch (e) {
-    SpreadsheetApp.getUi().alert('Erreur: ' + e.toString());
-    return null;
-  }
-  
-  return createColumnMappingSidebar(sheetName, modelName, fields); // Interne UIService
-}
+// ===== TESTING & DEBUGGING =====
 
 function template_testConnectionFromMenu() {
   var config = template_getOdooConfig();
@@ -366,28 +325,6 @@ function template_testConnectionFromMenu() {
     var html = template_showConfigSidebar(errorFields);
     ui.showSidebar(html);
   }
-}
-
-function template_saveTabMappingBridge(sheetName, modelName) {
-  if (typeof saveTabMapping === 'function') {
-    return saveTabMapping(sheetName, modelName);
-  }
-  return { success: false, message: 'saveTabMapping not found' };
-}
-
-function template_applyMappingBridge(sheetName, modelName) {
-  try {
-    var config = template_getOdooConfig();
-    if (typeof getFields === 'function' && typeof formatFieldsForUI === 'function' && typeof applyValidationRow === 'function') {
-      var rawFields = getFields(config, modelName);
-      var fields = formatFieldsForUI(rawFields);
-      applyValidationRow(sheetName, fields);
-      return { success: true };
-    }
-  } catch (e) {
-    return { success: false, message: e.toString() };
-  }
-  return { success: false, message: 'functions not found' };
 }
 
 function template_showConnectionResult(result) {
