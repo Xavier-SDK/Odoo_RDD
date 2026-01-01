@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <base target="_top">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
+    <style>
+        body {
+            font-family: 'Google Sans', Roboto, Arial, sans-serif;
+            padding: 0;
+            margin: 0;
+            font-size: 14px;
+            color: #202124;
+            background-color: #fff;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        #main-content {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            padding: 24px;
+            box-sizing: border-box;
+            overflow-y: auto;
+        }
+
+        /* Vues (cachées par défaut) */
+        #config-view,
+        #mapping-view {
+            display: none;
+        }
+
+        /* Styles communs */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            font-size: 13px;
+            color: #5f6368;
+            letter-spacing: 0.2px;
+        }
+
+        input,
+        select {
+            width: 100%;
+            padding: 10px 12px;
+            box-sizing: border-box;
+            border: 1px solid #dadce0;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #202124;
+            background-color: #fff;
+        }
+
+        input:focus,
+        select:focus {
+            outline: none;
+            border-color: #1a73e8;
+            box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.1);
+        }
+
+        button {
+            background-color: #1a73e8;
+            color: #fff;
+            border: none;
+            padding: 10px 24px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 8px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 1px 2px 0 rgba(60, 64, 67, 0.3);
+        }
+
+        button:hover {
+            background-color: #1557b0;
+        }
+
+        button:disabled {
+            background-color: #f1f3f4;
+            color: #80868b;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .status {
+            margin-top: 16px;
+            padding: 12px 16px;
+            border-radius: 4px;
+            display: none;
+            font-size: 13px;
+        }
+
+        .success {
+            background-color: #e6f4ea;
+            color: #137333;
+            border: 1px solid #34a853;
+        }
+
+        .error {
+            background-color: #fce8e6;
+            color: #c5221f;
+            border: 1px solid #ea4335;
+        }
+
+        .error-field {
+            border-color: #ea4335 !important;
+            background-color: #fce8e6;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            color: #5f6368;
+            margin-top: 10px;
+        }
+
+        .refresh-link {
+            color: #1a73e8;
+            cursor: pointer;
+            font-size: 11px;
+            text-decoration: none;
+            float: right;
+        }
+
+        .refresh-link:hover {
+            text-decoration: underline;
+        }
+
+        .column-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+
+        .column-name {
+            flex: 0 0 120px;
+            font-weight: 500;
+            font-size: 13px;
+        }
+
+        .field-select {
+            flex: 1;
+        }
+
+        #column-mappings {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="main-content">
+        <!-- Vue Configuration -->
+        <div id="config-view">
+            <div class="info-text" id="config-info"
+                style="display:none; margin-bottom:20px; color:#5f6368; font-size:13px;">
+                Veuillez renseigner les informations de connexion à votre instance Odoo.
+            </div>
+
+            <form id="configForm">
+                <div class="form-group">
+                    <label for="odooUrl">URL Odoo:</label>
+                    <input type="text" id="odooUrl" placeholder="https://votre-instance.odoo.com" maxlength="50"
+                        required>
+                </div>
+
+                <div class="form-group">
+                    <label for="odooDatabase">Base de données:</label>
+                    <input type="text" id="odooDatabase" placeholder="nom_base" maxlength="50" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="odooUser">Utilisateur:</label>
+                    <input type="text" id="odooUser" placeholder="admin" maxlength="50" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="odooApiKey">API Key:</label>
+                    <input type="password" id="odooApiKey" placeholder="votre_api_key" maxlength="50" required>
+                </div>
+
+                <button type="submit" id="submitBtn">Valider et tester la connexion</button>
+            </form>
+
+            <div class="loading" id="config-loading">Test de connexion en cours...</div>
+            <div id="config-status" class="status"></div>
+        </div>
+
+        <!-- Vue Mapping -->
+        <div id="mapping-view">
+            <div class="form-group">
+                <label for="sheet-select">Onglet source:</label>
+                <select id="sheet-select"></select>
+            </div>
+
+            <div class="form-group">
+                <label for="model-select">
+                    Modèle Odoo:
+                    <a href="#" class="refresh-link" id="refresh-models"><i class="fa fa-refresh"></i> Actualiser</a>
+                </label>
+                <select id="model-select" disabled>
+                    <option>Chargement...</option>
+                </select>
+            </div>
+
+            <div id="column-mappings"></div>
+            <div id="placeholder-msg" style="text-align:center; color:#80868b; margin:20px 0;">
+                Sélectionnez un modèle pour commencer.
+            </div>
+
+            <button id="save-btn" disabled>Sauvegarder le mapping</button>
+            <button id="test-btn" disabled>Tester (10 lignes)</button>
+
+            <div class="loading" id="mapping-loading">Chargement...</div>
+            <div id="mapping-status" class="status"></div>
+        </div>
+    </div>
+
+    <script>
+        var currentMode = null;
+        var state = {
+            sheetName: null,
+            availableSheets: [],
+            currentModel: null,
+            availableModels: [],
+            columns: [],
+            fields: [],
+            existingMappings: {}
+        };
+
+        // === INITIALISATION ===
+        window.onload = function () {
+            google.script.run
+                .withSuccessHandler(initializeSidebar)
+                .withFailureHandler(function (err) {
+                    showError('Erreur initialisation: ' + err.message);
+                })
+                .getSidebarMode();
+        };
+
+        function initializeSidebar(data) {
+            currentMode = data.mode;
+
+            if (currentMode === 'CONFIG') {
+                initConfigView(data);
+            } else if (currentMode === 'MAPPING') {
+                initMappingView(data);
+            }
+        }
+
+        // === VUE CONFIGURATION ===
+        function initConfigView(data) {
+            document.getElementById('config-view').style.display = 'block';
+            document.getElementById('mapping-view').style.display = 'none';
+
+            if (data.config) {
+                document.getElementById('odooUrl').value = data.config.url || '';
+                document.getElementById('odooDatabase').value = data.config.database || '';
+                document.getElementById('odooUser').value = data.config.user || '';
+                document.getElementById('odooApiKey').value = data.config.apiKey || '';
+
+                if (!data.config.url || !data.config.database) {
+                    document.getElementById('config-info').style.display = 'block';
+                }
+
+                if (data.configErrors) {
+                    if (data.configErrors.url) document.getElementById('odooUrl').classList.add('error-field');
+                    if (data.configErrors.database) document.getElementById('odooDatabase').classList.add('error-field');
+                    if (data.configErrors.user) document.getElementById('odooUser').classList.add('error-field');
+                    if (data.configErrors.apiKey) document.getElementById('odooApiKey').classList.add('error-field');
+                }
+            }
+
+            document.getElementById('configForm').addEventListener('submit', handleConfigSubmit);
+        }
+
+        function handleConfigSubmit(e) {
+            e.preventDefault();
+
+            var submitBtn = document.getElementById('submitBtn');
+            var loading = document.getElementById('config-loading');
+            var status = document.getElementById('config-status');
+
+            submitBtn.disabled = true;
+            loading.style.display = 'block';
+            status.style.display = 'none';
+
+            var urlValue = document.getElementById('odooUrl').value.trim();
+            if (urlValue.endsWith('/')) urlValue = urlValue.slice(0, -1);
+
+            var config = {
+                url: urlValue,
+                database: document.getElementById('odooDatabase').value.trim(),
+                user: document.getElementById('odooUser').value.trim(),
+                apiKey: document.getElementById('odooApiKey').value.trim()
+            };
+
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    submitBtn.disabled = false;
+                    loading.style.display = 'none';
+
+                    if (result.success && result.connectionTest && result.connectionTest.success) {
+                        google.script.run
+                            .withSuccessHandler(function () {
+                                google.script.host.close();
+                            })
+                            .showConnectionResult(result);
+                    } else {
+                        status.className = 'status error';
+                        status.textContent = result.message || 'Erreur lors de la configuration';
+                        status.style.display = 'block';
+
+                        // Reset error fields
+                        document.querySelectorAll('.error-field').forEach(el => el.classList.remove('error-field'));
+
+                        if (result.errorFields) {
+                            if (result.errorFields.url) document.getElementById('odooUrl').classList.add('error-field');
+                            if (result.errorFields.database) document.getElementById('odooDatabase').classList.add('error-field');
+                            if (result.errorFields.user) document.getElementById('odooUser').classList.add('error-field');
+                            if (result.errorFields.apiKey) document.getElementById('odooApiKey').classList.add('error-field');
+                        }
+                    }
+                })
+                .withFailureHandler(function (error) {
+                    submitBtn.disabled = false;
+                    loading.style.display = 'none';
+                    status.className = 'status error';
+                    status.textContent = 'Erreur: ' + error.message;
+                    status.style.display = 'block';
+                })
+                .saveConfig(config);
+        }
+
+        // === VUE MAPPING ===
+        function initMappingView(data) {
+            document.getElementById('config-view').style.display = 'none';
+            document.getElementById('mapping-view').style.display = 'block';
+
+            // Charger données initiales
+            google.script.run
+                .withSuccessHandler(handleInitialData)
+                .withFailureHandler(function (err) {
+                    showError('Erreur chargement: ' + err.message);
+                })
+                .getInitialMappingData(null);
+
+            // Event listeners
+            document.getElementById('sheet-select').addEventListener('change', onSheetChange);
+            document.getElementById('model-select').addEventListener('change', onModelChange);
+            document.getElementById('refresh-models').addEventListener('click', function (e) {
+                e.preventDefault();
+                loadModels(true);
+            });
+            document.getElementById('save-btn').addEventListener('click', saveMapping);
+            document.getElementById('test-btn').addEventListener('click', testMapping);
+        }
+
+        function handleInitialData(data) {
+            state.sheetName = data.sheetName;
+            state.availableSheets = data.availableSheets;
+            state.currentModel = data.currentModel;
+            state.columns = data.columns;
+            state.existingMappings = data.existingMappings || {};
+
+            var sheetSelect = document.getElementById('sheet-select');
+            sheetSelect.innerHTML = '';
+            data.availableSheets.forEach(function (s) {
+                var opt = document.createElement('option');
+                opt.value = s;
+                opt.textContent = s;
+                if (s === data.sheetName) opt.selected = true;
+                sheetSelect.appendChild(opt);
+            });
+
+            loadModels(false);
+        }
+
+        function loadModels(forceRefresh) {
+            var modelSelect = document.getElementById('model-select');
+            modelSelect.disabled = true;
+            modelSelect.innerHTML = '<option>Chargement des modèles...</option>';
+
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    state.availableModels = result.models;
+                    modelSelect.innerHTML = '<option value="">-- Sélectionner un modèle --</option>';
+
+                    result.models.forEach(function (m) {
+                        var opt = document.createElement('option');
+                        opt.value = m.model;
+                        opt.textContent = m.model + ' (' + m.name + ')';
+                        if (state.currentModel && m.model === state.currentModel) {
+                            opt.selected = true;
+                        }
+                        modelSelect.appendChild(opt);
+                    });
+
+                    modelSelect.disabled = false;
+
+                    if (state.currentModel) {
+                        loadFields(state.currentModel, forceRefresh);
+                    }
+                })
+                .withFailureHandler(function (err) {
+                    showError('Erreur chargement modèles: ' + err.message);
+                    modelSelect.innerHTML = '<option value="">Erreur</option>';
+                })
+                .getContextualModels(forceRefresh);
+        }
+
+        function loadFields(modelName, forceRefresh) {
+            showStatus('Chargement champs...', 'info');
+            document.getElementById('save-btn').disabled = true;
+
+            google.script.run
+                .withSuccessHandler(function (fields) {
+                    state.fields = fields;
+                    renderColumnMappings();
+                    hideStatus();
+                    document.getElementById('save-btn').disabled = false;
+                    document.getElementById('test-btn').disabled = false;
+                })
+                .withFailureHandler(function (err) {
+                    showError('Erreur chargement champs: ' + err.message);
+                })
+                .getModelFields(modelName, forceRefresh);
+
+            if (!forceRefresh) {
+                google.script.run.getModelFields(modelName, true);
+            }
+        }
+
+        function renderColumnMappings() {
+            var container = document.getElementById('column-mappings');
+            container.innerHTML = '';
+            document.getElementById('placeholder-msg').style.display = 'none';
+
+            if (state.columns.length === 0) {
+                container.innerHTML = '<div style="text-align:center; color:#80868b;">Aucune colonne trouvée</div>';
+                return;
+            }
+
+            state.columns.forEach(function (colName) {
+                var row = document.createElement('div');
+                row.className = 'column-row';
+
+                var label = document.createElement('div');
+                label.className = 'column-name';
+                label.textContent = colName;
+                row.appendChild(label);
+
+                var select = document.createElement('select');
+                select.className = 'field-select';
+                select.setAttribute('data-column', colName);
+
+                var empty = document.createElement('option');
+                empty.value = '';
+                empty.textContent = '-- Ne pas importer --';
+                select.appendChild(empty);
+
+                var selectedFieldId = state.existingMappings[colName];
+                if (!selectedFieldId) {
+                    selectedFieldId = findBestMatch(colName, state.fields);
+                }
+
+                state.fields.forEach(function (f) {
+                    var opt = document.createElement('option');
+                    opt.value = f.id;
+                    opt.textContent = f.text;
+                    if (f.id === selectedFieldId) opt.selected = true;
+                    select.appendChild(opt);
+                });
+
+                row.appendChild(select);
+                container.appendChild(row);
+            });
+        }
+
+        function findBestMatch(colName, fields) {
+            if (!colName) return null;
+            var normCol = colName.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+            var common = {
+                'nom': 'name', 'name': 'name', 'email': 'email', 'telephone': 'phone',
+                'phone': 'phone', 'tel': 'phone', 'mobile': 'mobile', 'ville': 'city',
+                'city': 'city', 'cp': 'zip', 'zip': 'zip', 'pays': 'country_id'
+            };
+
+            if (common[normCol]) {
+                var m = fields.find(f => f.id === common[normCol]);
+                if (m) return m.id;
+            }
+
+            for (var i = 0; i < fields.length; i++) {
+                if (fields[i].id.toLowerCase() === normCol) return fields[i].id;
+            }
+
+            return null;
+        }
+
+        function onSheetChange() {
+            var sheetName = document.getElementById('sheet-select').value;
+            if (sheetName) {
+                google.script.run
+                    .withSuccessHandler(handleInitialData)
+                    .getInitialMappingData(sheetName);
+            }
+        }
+
+        function onModelChange() {
+            var modelName = document.getElementById('model-select').value;
+            if (modelName) {
+                state.currentModel = modelName;
+                loadFields(modelName, false);
+            } else {
+                state.currentModel = null;
+                document.getElementById('column-mappings').innerHTML = '';
+                document.getElementById('save-btn').disabled = true;
+            }
+        }
+
+        function saveMapping() {
+            var mappings = {};
+            var selects = document.querySelectorAll('.field-select');
+            selects.forEach(function (select) {
+                var colName = select.getAttribute('data-column');
+                var fieldId = select.value;
+                if (fieldId) {
+                    mappings[colName] = fieldId;
+                }
+            });
+
+            showStatus('Sauvegarde...', 'info');
+
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    if (result.success) {
+                        showStatus('✓ Mapping sauvegardé', 'success');
+                        setTimeout(hideStatus, 2000);
+                    } else {
+                        showError(result.message || 'Erreur sauvegarde');
+                    }
+                })
+                .withFailureHandler(function (err) {
+                    showError('Erreur: ' + err.message);
+                })
+                .saveContextualMapping(state.sheetName, state.currentModel, mappings);
+        }
+
+        function testMapping() {
+            var mappings = {};
+            var selects = document.querySelectorAll('.field-select');
+            selects.forEach(function (select) {
+                var colName = select.getAttribute('data-column');
+                var fieldId = select.value;
+                if (fieldId) {
+                    mappings[colName] = fieldId;
+                }
+            });
+
+            showStatus('Test en cours...', 'info');
+
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    if (result.success) {
+                        var msg = result.errorCount === 0
+                            ? '✓ Aucune erreur détectée (' + result.message + ')'
+                            : '⚠ ' + result.errorCount + ' erreur(s) détectée(s)';
+                        showStatus(msg, result.errorCount === 0 ? 'success' : 'error');
+                    } else {
+                        showError(result.message || 'Erreur test');
+                    }
+                })
+                .withFailureHandler(function (err) {
+                    showError('Erreur: ' + err.message);
+                })
+                .testMappingData(state.sheetName, state.currentModel, mappings);
+        }
+
+        // === UTILITAIRES ===
+        function showStatus(msg, type) {
+            var status = document.getElementById('mapping-status');
+            status.className = 'status ' + type;
+            status.textContent = msg;
+            status.style.display = 'block';
+        }
+
+        function showError(msg) {
+            showStatus(msg, 'error');
+        }
+
+        function hideStatus() {
+            document.getElementById('mapping-status').style.display = 'none';
+        }
+    </script>
+</body>
+
+</html>

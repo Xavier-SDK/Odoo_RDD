@@ -17,7 +17,7 @@ function getInitialMappingData(targetSheetName) {
   // 1. Liste des onglets valides
   var sheets = ss.getSheets();
   var availableSheets = [];
-  var excludedSheets = ['Admin Logs', 'Paramètres', 'Configuration'];
+  var excludedSheets = ['Paramètres', 'Configuration'];
   
   sheets.forEach(function(s) {
     var name = s.getName();
@@ -38,9 +38,7 @@ function getInitialMappingData(targetSheetName) {
   var columns = getSheetColumns(sheetName);
   
   // 4. Mappings existants pour cet onglet
-  Logger.log('getInitialMappingData - sheetName: ' + sheetName);
   var existingMappings = getColumnMappings(sheetName);
-  Logger.log('getInitialMappingData - existingMappings: ' + JSON.stringify(existingMappings));
   
   return {
     sheetName: sheetName,
@@ -211,14 +209,47 @@ function saveContextualMapping(sheetName, modelName, columnMappings) {
   try {
     saveTabMapping(sheetName, modelName);
     
+    // Obtenir la feuille pour calculer les lettres de colonnes
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(sheetName);
+    if (!sheet) throw new Error("Onglet introuvable");
+    
+    var lastCol = sheet.getLastColumn();
+    if (lastCol === 0) return { success: true, message: "Onglet vide, rien à mapper" };
+    
+    // Lire la ligne d'entête (ligne 1)
+    var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    
     for (var colName in columnMappings) {
-      saveColumnMapping(sheetName, colName, columnMappings[colName]);
+      if (!colName || !columnMappings[colName]) continue;
+      
+      var fieldId = columnMappings[colName];
+      var colIndex = headers.indexOf(colName); // 0-based index
+      
+      if (colIndex !== -1) {
+        var letter = getColumnLetter(colIndex + 1); // 1-based pour la fonction
+        // setOdooField(sheetName, columnName(Lettre), columnHeader(Nom), fieldId)
+        setOdooField(sheetName, letter, colName, fieldId);
+      }
     }
     
     return { success: true, message: "Mapping sauvegardé avec succès" };
   } catch (e) {
     return { success: false, message: e.message };
   }
+}
+
+/**
+ * Convertit un index de colonne (1-based) en lettre (ex: 1->A, 27->AA)
+ */
+function getColumnLetter(colIndex) {
+  var temp, letter = '';
+  while (colIndex > 0) {
+    temp = (colIndex - 1) % 26;
+    letter = String.fromCharCode(temp + 65) + letter;
+    colIndex = (colIndex - temp - 1) / 26;
+  }
+  return letter;
 }
 
 /**

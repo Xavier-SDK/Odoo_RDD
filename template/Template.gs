@@ -45,6 +45,10 @@ function debugGetModels() {
   Logger.log(models);
 }
 
+function getSidebarMode() {
+  return OdooRDD.getSidebarMode();
+}
+
 
 // --- Mapping Contextuel (Lazy Loading) ---
 

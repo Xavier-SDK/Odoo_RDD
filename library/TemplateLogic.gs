@@ -244,28 +244,52 @@ function template_identifyErrorFields(config, testResult) {
 // ===== UI SERVICE (Fusionné depuis UIService.gs) =====
 
 function template_showConfigSidebar(errorFields) {
-  var config = template_getOdooConfig();
-  config.errorFields = errorFields || {};
-  return createConfigSidebar(config);
+  PropertiesService.getUserProperties().setProperty('SIDEBAR_MODE', 'CONFIG');
+  if (errorFields) {
+    PropertiesService.getUserProperties().setProperty('SIDEBAR_CONFIG_ERRORS', JSON.stringify(errorFields));
+  }
+  return createUnifiedSidebar();
 }
 
 function template_showContextualMappingSidebar() {
-  return createContextualMappingSidebar();
+  PropertiesService.getUserProperties().setProperty('SIDEBAR_MODE', 'MAPPING');
+  return createUnifiedSidebar();
 }
 
-function createConfigSidebar(config) {
-  var html = HtmlService.createTemplateFromFile('ConfigSidebar');
-  html.config = config;
-  return html.evaluate()
-    .setTitle('Configuration Odoo')
-    .setWidth(350);
+function createUnifiedSidebar() {
+  Logger.log('createUnifiedSidebar called');
+  try {
+    var html = HtmlService.createHtmlOutputFromFile('UnifiedSidebar');
+    html.setTitle('Odoo RDD')
+      .setWidth(400);
+    Logger.log('UnifiedSidebar created successfully');
+    return html;
+  } catch (e) {
+    Logger.log('ERROR in createUnifiedSidebar: ' + e.toString());
+    return HtmlService.createHtmlOutput('<h3>Erreur chargement Sidebar</h3><p>' + e.toString() + '</p>')
+      .setTitle('Erreur')
+      .setWidth(400);
+  }
 }
 
-function createContextualMappingSidebar() {
-  var html = HtmlService.createTemplateFromFile('ContextualMappingView');
-  return html.evaluate()
-    .setTitle('Mapping Contextuel')
-    .setWidth(400);
+function getSidebarMode() {
+  var mode = PropertiesService.getUserProperties().getProperty('SIDEBAR_MODE') || 'CONFIG';
+  var errorsJson = PropertiesService.getUserProperties().getProperty('SIDEBAR_CONFIG_ERRORS');
+  
+  var result = {
+    mode: mode,
+    configErrors: errorsJson ? JSON.parse(errorsJson) : {},
+    config: null
+  };
+  
+  if (mode === 'CONFIG') {
+    result.config = template_getOdooConfig();
+  }
+  
+  // Nettoyer les erreurs après lecture
+  PropertiesService.getUserProperties().deleteProperty('SIDEBAR_CONFIG_ERRORS');
+  
+  return result;
 }
 
 // ===== MENU =====
@@ -297,8 +321,26 @@ function template_createOdooMenu(statusEmoji) {
     .addSubMenu(ui.createMenu('Outils')
       .addItem('Tester la connexion', 'testConnectionFromMenu')
       .addItem('Debug: Lister modèles', 'debugGetModels')
+      .addItem('Debug: Test Config Sidebar', 'debug_TestConfigSidebarGeneration')
       .addItem('Réparation', 'showPlaceholder'))
     .addToUi();
+}
+
+function debug_TestConfigSidebarGeneration() {
+  Logger.log('=== START DEBUG SIDEBAR ===');
+  try {
+    var html = template_showConfigSidebar();
+    Logger.log('Output Type: ' + (html ? html.toString() : 'null'));
+    if (html) {
+       var content = html.getContent();
+       Logger.log('HTML Content length: ' + content.length);
+       Logger.log('HTML Content start: ' + content.substring(0, 100));
+    }
+  } catch(e) {
+    Logger.log('*** ERROR GENERATING SIDEBAR: ' + e.toString() + ' ***');
+    Logger.log('Stack: ' + e.stack);
+  }
+  Logger.log('=== END DEBUG SIDEBAR ===');
 }
 
 // ===== TESTING & DEBUGGING =====

@@ -286,22 +286,21 @@ function setOdooModel(sheetName, modelName) {
  * @return {Object} Dictionnaire {columnName: fieldId}
  */
 function getOdooFields(sheetName) {
-  Logger.log('getOdooFields - sheetName: ' + sheetName);
   var rows = filterSmartTable('ODOO_FIELDS', {'Onglet': sheetName});
-  Logger.log('getOdooFields - rows trouvées: ' + rows.length);
   
   var mappings = {};
   
   rows.forEach(function(row) {
-    var columnName = row['Colonne'];
+    // La colonne 'Colonne' contient la lettre (ex: 'A'), 'Entête' contient le nom (ex: 'Nom')
+    // Le frontend utilise le nom de l'entête comme clé.
+    var headerName = row['Entête']; 
     var fieldId = row['Champ Odoo'];
-    Logger.log('getOdooFields - row: Colonne=' + columnName + ', Champ=' + fieldId);
-    if (columnName && fieldId) {
-      mappings[columnName] = fieldId;
+    
+    if (headerName && fieldId) {
+      mappings[headerName] = fieldId;
     }
   });
   
-  Logger.log('getOdooFields - mappings final: ' + JSON.stringify(mappings));
   return mappings;
 }
 
