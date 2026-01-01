@@ -256,6 +256,11 @@ function template_showContextualMappingSidebar() {
   return createUnifiedSidebar();
 }
 
+function template_showFormattingSidebar() {
+  PropertiesService.getUserProperties().setProperty('SIDEBAR_MODE', 'FORMATTING');
+  return createUnifiedSidebar();
+}
+
 function createUnifiedSidebar() {
   Logger.log('createUnifiedSidebar called');
   try {
@@ -292,6 +297,60 @@ function getSidebarMode() {
   return result;
 }
 
+/**
+ * Applique le formatage standard à l'onglet actif.
+ */
+function formatActiveSheet() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getActiveSheet();
+    
+    // 0. Suppression des lignes et colonnes vides
+    var maxRows = sheet.getMaxRows();
+    var lastRow = sheet.getLastRow();
+    if (maxRows > lastRow && lastRow > 0) {
+      sheet.deleteRows(lastRow + 1, maxRows - lastRow);
+    }
+    
+    var maxCols = sheet.getMaxColumns();
+    var lastCol = sheet.getLastColumn();
+    if (maxCols > lastCol && lastCol > 0) {
+      sheet.deleteColumns(lastCol + 1, maxCols - lastCol);
+    }
+
+    // 1. Supprimer les bordures sur toute la plage utilisée
+    var range = sheet.getDataRange();
+    if (range.getNumRows() > 0) {
+      range.setBorder(false, false, false, false, false, false);
+      
+      // 2. Police par défaut (sans serif), taille 10
+      range.setFontFamily('Roboto'); // Plus proche du thème standard que Arial
+      range.setFontSize(10);
+      
+      // 3. Figer la première ligne
+      sheet.setFrozenRows(1);
+      
+      // 4. En-tête (Ligne 1) : Gras, Fond Noir, Texte Blanc
+      var headerRange = sheet.getRange(1, 1, 1, range.getLastColumn());
+      headerRange.setFontWeight('bold');
+      headerRange.setBackground('#000000');
+      headerRange.setFontColor('#ffffff');
+      
+      // 5. Mise en place des filtres
+      if (sheet.getFilter()) {
+        sheet.getFilter().remove();
+      }
+      headerRange.createFilter();
+      
+      return { success: true, message: "Mise en forme appliquée avec succès." };
+    }
+    return { success: false, message: "L'onglet est vide." };
+  } catch (e) {
+    Logger.log('Error in formatActiveSheet: ' + e.toString());
+    return { success: false, message: "Erreur lors du formatage: " + e.toString() };
+  }
+}
+
 // ===== MENU =====
 
 function template_createOdooMenu(statusEmoji) {
@@ -311,7 +370,7 @@ function template_createOdooMenu(statusEmoji) {
       .addItem('💡 Mapping', 'showContextualMappingSidebar')
       .addSeparator()
       .addItem('Dédoublonnage', 'showPlaceholder')
-      .addItem('Formatage', 'showPlaceholder')
+      .addItem('Formatage', 'showFormattingSidebar')
       .addItem('Enrichissement', 'showPlaceholder')
       .addItem('Validation', 'showPlaceholder'))
     .addSubMenu(ui.createMenu('Odoo Sync')

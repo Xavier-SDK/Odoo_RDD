@@ -29,7 +29,8 @@
 
         /* Vues (cachées par défaut) */
         #config-view,
-        #mapping-view {
+        #mapping-view,
+        #formatting-view {
             display: none;
         }
 
@@ -225,6 +226,18 @@
             <div class="loading" id="mapping-loading">Chargement...</div>
             <div id="mapping-status" class="status"></div>
         </div>
+
+        <!-- Vue Formatage -->
+        <div id="formatting-view">
+            <div class="info-text" style="margin-bottom:20px; color:#5f6368; font-size:13px;">
+                Appliquez un formatage standard à l'onglet en cours.
+            </div>
+
+            <button id="format-btn">Mise en forme</button>
+
+            <div class="loading" id="formatting-loading">Mise en forme en cours...</div>
+            <div id="formatting-status" class="status"></div>
+        </div>
     </div>
 
     <script>
@@ -256,7 +269,49 @@
                 initConfigView(data);
             } else if (currentMode === 'MAPPING') {
                 initMappingView(data);
+            } else if (currentMode === 'FORMATTING') {
+                initFormattingView(data);
             }
+        }
+
+        // === VUE FORMATTAGE ===
+        function initFormattingView(data) {
+            document.getElementById('config-view').style.display = 'none';
+            document.getElementById('mapping-view').style.display = 'none';
+            document.getElementById('formatting-view').style.display = 'block';
+
+            document.getElementById('format-btn').addEventListener('click', handleFormatting);
+        }
+
+        function handleFormatting() {
+            var btn = document.getElementById('format-btn');
+            var loading = document.getElementById('formatting-loading');
+            var status = document.getElementById('formatting-status');
+
+            btn.disabled = true;
+            loading.style.display = 'block';
+            status.style.display = 'none';
+
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    btn.disabled = false;
+                    loading.style.display = 'none';
+                    status.className = 'status ' + (result.success ? 'success' : 'error');
+                    status.textContent = result.message;
+                    status.style.display = 'block';
+
+                    if (result.success) {
+                        setTimeout(() => { status.style.display = 'none'; }, 3000);
+                    }
+                })
+                .withFailureHandler(function (err) {
+                    btn.disabled = false;
+                    loading.style.display = 'none';
+                    status.className = 'status error';
+                    status.textContent = 'Erreur: ' + err.message;
+                    status.style.display = 'block';
+                })
+                .formatActiveSheet();
         }
 
         // === VUE CONFIGURATION ===
