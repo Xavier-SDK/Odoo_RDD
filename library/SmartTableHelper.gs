@@ -29,7 +29,7 @@ var SMART_TABLES = {
   },
   TAB_PAYS: {
     startCol: 15, // Colonne O
-    columns: ['Code du pays', 'Nom du pays']
+    columns: ['Code du pays', 'Nom du pays', 'Indice']
   }
 };
 

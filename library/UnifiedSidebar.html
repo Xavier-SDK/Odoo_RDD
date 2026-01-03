@@ -19,18 +19,33 @@
         }
 
         #main-content {
-            display: flex;
-            flex-direction: column;
-            height: 100%;
+            flex: 1;
             padding: 24px;
             box-sizing: border-box;
             overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #mapping-view {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        #column-mappings {
+            flex: 1;
+            overflow-y: auto;
+            margin-top: 16px;
+            padding-right: 4px;
         }
 
         /* Vues (cachées par défaut) */
         #config-view,
         #mapping-view,
-        #formatting-view {
+        #formatting-view,
+        #enrichment-view {
             display: none;
         }
 
@@ -122,6 +137,35 @@
             text-align: center;
             color: #5f6368;
             margin-top: 10px;
+            font-size: 13px;
+        }
+
+        h3 {
+            font-size: 16px;
+            margin: 20px 0 12px 0;
+            color: #202124;
+            font-weight: 500;
+        }
+
+        .section-divider {
+            margin: 24px 0;
+            border-top: 1px solid #dadce0;
+        }
+
+        button.secondary {
+            background-color: #34a853;
+        }
+
+        button.secondary:hover {
+            background-color: #2d8e47;
+        }
+
+        button.warning {
+            background-color: #ea4335;
+        }
+
+        button.warning:hover {
+            background-color: #c5221f;
         }
 
         .refresh-link {
@@ -154,7 +198,7 @@
         }
 
         #column-mappings {
-            max-height: 400px;
+            flex: 1;
             overflow-y: auto;
         }
     </style>
@@ -187,8 +231,13 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="odooApiKey">API Key:</label>
-                    <input type="password" id="odooApiKey" placeholder="votre_api_key" maxlength="50" required>
+                    <label for="odooApiKey">API Key Odoo:</label>
+                    <input type="password" id="odooApiKey" placeholder="votre_api_key_odoo" maxlength="50" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="googleAiKey">Google AI API Key:</label>
+                    <input type="password" id="googleAiKey" placeholder="votre_api_key_gemini" maxlength="100">
                 </div>
 
                 <button type="submit" id="submitBtn">Valider et tester la connexion</button>
@@ -238,6 +287,27 @@
             <div class="loading" id="formatting-loading">Mise en forme en cours...</div>
             <div id="formatting-status" class="status"></div>
         </div>
+
+        <!-- Vue Enrichissement -->
+        <div id="enrichment-view">
+            <h3>💾 Sauvegarde</h3>
+            <button type="button" id="saveBackupBtn">Sauvegarder l'onglet</button>
+            <button type="button" id="restoreBackupBtn" class="warning" disabled>Rétablir le backup</button>
+
+            <div class="section-divider"></div>
+
+            <h3>🤖 Enrichissement IA</h3>
+            <button type="button" id="populateStatesBtn" class="secondary">Peupler les états (IA)</button>
+            <button type="button" id="populateCountriesBtn" class="secondary">Peupler les pays (IA)</button>
+
+            <div class="section-divider"></div>
+
+            <h3>📞 Formatage</h3>
+            <button type="button" id="formatPhonesBtn">Formater les numéros de téléphone</button>
+
+            <div class="loading" id="enrichment-loading">Traitement en cours...</div>
+            <div id="enrichment-status" class="status"></div>
+        </div>
     </div>
 
     <script>
@@ -254,6 +324,7 @@
 
         // === INITIALISATION ===
         window.onload = function () {
+            setupEventListeners();
             google.script.run
                 .withSuccessHandler(initializeSidebar)
                 .withFailureHandler(function (err) {
@@ -261,6 +332,36 @@
                 })
                 .getSidebarMode();
         };
+
+        function setupEventListeners() {
+            function safeAddListener(id, event, handler) {
+                var el = document.getElementById(id);
+                if (el) el.addEventListener(event, handler);
+            }
+
+            // Configuration
+            safeAddListener('configForm', 'submit', handleConfigSubmit);
+
+            // Mapping
+            safeAddListener('sheet-select', 'change', onSheetChange);
+            safeAddListener('model-select', 'change', onModelChange);
+            safeAddListener('refresh-models', 'click', function (e) {
+                e.preventDefault();
+                loadModels(true);
+            });
+            safeAddListener('save-btn', 'click', saveMapping);
+            safeAddListener('test-btn', 'click', testMapping);
+
+            // Formatage (Global)
+            safeAddListener('format-btn', 'click', handleFormatting);
+
+            // Enrichissement
+            safeAddListener('saveBackupBtn', 'click', handleSaveBackup);
+            safeAddListener('restoreBackupBtn', 'click', handleRestoreBackup);
+            safeAddListener('populateStatesBtn', 'click', handlePopulateStates);
+            safeAddListener('populateCountriesBtn', 'click', handlePopulateCountries);
+            safeAddListener('formatPhonesBtn', 'click', handleFormatPhones);
+        }
 
         function initializeSidebar(data) {
             currentMode = data.mode;
@@ -271,6 +372,126 @@
                 initMappingView(data);
             } else if (currentMode === 'FORMATTING') {
                 initFormattingView(data);
+            } else if (currentMode === 'ENRICHMENT') {
+                initEnrichmentView(data);
+            }
+        }
+
+        // === VUE ENRICHISSEMENT ===
+        function initEnrichmentView(data) {
+            document.getElementById('config-view').style.display = 'none';
+            document.getElementById('mapping-view').style.display = 'none';
+            document.getElementById('formatting-view').style.display = 'none';
+            document.getElementById('enrichment-view').style.display = 'block';
+
+            checkBackupStatus();
+        }
+
+        function checkBackupStatus() {
+            google.script.run
+                .withSuccessHandler(function (hasBackup) {
+                    document.getElementById('restoreBackupBtn').disabled = !hasBackup;
+                })
+                .withFailureHandler(function (err) {
+                    console.error('Error checking backup status:', err);
+                })
+                .enrichment_checkBackup();
+        }
+
+        function handleSaveBackup() {
+            setEnrichmentLoading(true);
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    setEnrichmentLoading(false);
+                    showEnrichmentStatus(result.message, result.success ? 'success' : 'error');
+                    if (result.success) {
+                        document.getElementById('restoreBackupBtn').disabled = false;
+                    }
+                })
+                .withFailureHandler(function (err) {
+                    setEnrichmentLoading(false);
+                    showEnrichmentStatus('Erreur: ' + err.message, 'error');
+                })
+                .enrichment_saveBackup();
+        }
+
+        function handleRestoreBackup(e) {
+            if (e) e.preventDefault();
+
+            setEnrichmentLoading(true);
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    setEnrichmentLoading(false);
+                    showEnrichmentStatus(result.message, result.success ? 'success' : 'error');
+                })
+                .withFailureHandler(function (err) {
+                    setEnrichmentLoading(false);
+                    showEnrichmentStatus('Erreur: ' + err.message, 'error');
+                })
+                .enrichment_restoreBackup();
+        }
+
+        function handlePopulateStates() {
+            setEnrichmentLoading(true);
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    setEnrichmentLoading(false);
+                    showEnrichmentStatus(result.message, result.success ? 'success' : 'error');
+                })
+                .withFailureHandler(function (err) {
+                    setEnrichmentLoading(false);
+                    showEnrichmentStatus('Erreur: ' + err.message, 'error');
+                })
+                .enrichment_populateStates();
+        }
+
+        function handlePopulateCountries() {
+            setEnrichmentLoading(true);
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    setEnrichmentLoading(false);
+                    showEnrichmentStatus(result.message, result.success ? 'success' : 'error');
+                })
+                .withFailureHandler(function (err) {
+                    setEnrichmentLoading(false);
+                    showEnrichmentStatus('Erreur: ' + err.message, 'error');
+                })
+                .enrichment_populateCountries();
+        }
+
+        function handleFormatPhones() {
+            setEnrichmentLoading(true);
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    setEnrichmentLoading(false);
+                    showEnrichmentStatus(result.message, result.success ? 'success' : 'error');
+                })
+                .withFailureHandler(function (err) {
+                    setEnrichmentLoading(false);
+                    showEnrichmentStatus('Erreur: ' + err.message, 'error');
+                })
+                .enrichment_formatPhones();
+        }
+
+        function setEnrichmentLoading(isLoading) {
+            document.getElementById('enrichment-loading').style.display = isLoading ? 'block' : 'none';
+            var buttons = document.getElementById('enrichment-view').querySelectorAll('button');
+            buttons.forEach(function (btn) {
+                btn.disabled = isLoading;
+            });
+            if (!isLoading) checkBackupStatus();
+        }
+
+        function showEnrichmentStatus(message, type) {
+            var status = document.getElementById('enrichment-status');
+            status.className = 'status ' + type;
+            status.textContent = message;
+            status.style.display = 'block';
+
+            if (type === 'success') {
+                setTimeout(function () {
+                    status.style.display = 'none';
+                }, 5000);
             }
         }
 
@@ -279,8 +500,7 @@
             document.getElementById('config-view').style.display = 'none';
             document.getElementById('mapping-view').style.display = 'none';
             document.getElementById('formatting-view').style.display = 'block';
-
-            document.getElementById('format-btn').addEventListener('click', handleFormatting);
+            document.getElementById('enrichment-view').style.display = 'none';
         }
 
         function handleFormatting() {
@@ -324,6 +544,7 @@
                 document.getElementById('odooDatabase').value = data.config.database || '';
                 document.getElementById('odooUser').value = data.config.user || '';
                 document.getElementById('odooApiKey').value = data.config.apiKey || '';
+                document.getElementById('googleAiKey').value = data.config.googleAiKey || '';
 
                 if (!data.config.url || !data.config.database) {
                     document.getElementById('config-info').style.display = 'block';
@@ -334,11 +555,11 @@
                     if (data.configErrors.database) document.getElementById('odooDatabase').classList.add('error-field');
                     if (data.configErrors.user) document.getElementById('odooUser').classList.add('error-field');
                     if (data.configErrors.apiKey) document.getElementById('odooApiKey').classList.add('error-field');
+                    if (data.configErrors.googleAiKey) document.getElementById('googleAiKey').classList.add('error-field');
                 }
             }
-
-            document.getElementById('configForm').addEventListener('submit', handleConfigSubmit);
         }
+
 
         function handleConfigSubmit(e) {
             e.preventDefault();
@@ -358,7 +579,8 @@
                 url: urlValue,
                 database: document.getElementById('odooDatabase').value.trim(),
                 user: document.getElementById('odooUser').value.trim(),
-                apiKey: document.getElementById('odooApiKey').value.trim()
+                apiKey: document.getElementById('odooApiKey').value.trim(),
+                googleAiKey: document.getElementById('googleAiKey').value.trim()
             };
 
             google.script.run
@@ -410,16 +632,6 @@
                     showError('Erreur chargement: ' + err.message);
                 })
                 .getInitialMappingData(null);
-
-            // Event listeners
-            document.getElementById('sheet-select').addEventListener('change', onSheetChange);
-            document.getElementById('model-select').addEventListener('change', onModelChange);
-            document.getElementById('refresh-models').addEventListener('click', function (e) {
-                e.preventDefault();
-                loadModels(true);
-            });
-            document.getElementById('save-btn').addEventListener('click', saveMapping);
-            document.getElementById('test-btn').addEventListener('click', testMapping);
         }
 
         function handleInitialData(data) {

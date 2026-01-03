@@ -38,6 +38,7 @@ function IBAN(ibanValue, mode) {
 }
 
 
+
 // Bridge pour la sidebar contextuelle (Unique)
 function showContextualMappingSidebar() {
   var html = OdooRDD.template_showContextualMappingSidebar();
@@ -48,6 +49,12 @@ function showFormattingSidebar() {
   var html = OdooRDD.template_showFormattingSidebar();
   SpreadsheetApp.getUi().showSidebar(html);
 }
+
+function showEnrichmentSidebar() {
+  var html = OdooRDD.template_showEnrichmentSidebar();
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
 
 function showPlaceholder() {
   SpreadsheetApp.getUi().alert("Fonctionnalité en cours de développement");
@@ -99,3 +106,36 @@ function formatActiveSheet() {
 }
 
 
+function activateAIAuthorization() {
+  return OdooRDD.template_activateAIAuthorization();
+}
+
+function activateAIAuthorizationFromMenu() {
+  OdooRDD.template_activateAIAuthorization();
+}
+
+// --- Enrichment Functions ---
+
+function enrichment_checkBackup() {
+  return OdooRDD.enrichment_checkBackup();
+}
+
+function enrichment_saveBackup() {
+  return OdooRDD.enrichment_saveBackup();
+}
+
+function enrichment_restoreBackup() {
+  return OdooRDD.enrichment_restoreBackup();
+}
+
+function enrichment_populateStates() {
+  return OdooRDD.enrichment_populateStates();
+}
+
+function enrichment_populateCountries() {
+  return OdooRDD.enrichment_populateCountries();
+}
+
+function enrichment_formatPhones() {
+  return OdooRDD.enrichment_formatPhones();
+}
