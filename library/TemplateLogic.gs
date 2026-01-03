@@ -1,6 +1,5 @@
 /**
  * TemplateLogic - Logique métier du Template
- * Version nettoyée - Fusion UIService + suppression code obsolète
  */
 
 // ===== LIFECYCLE HOOKS =====

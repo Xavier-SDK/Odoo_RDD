@@ -23,7 +23,20 @@ function saveConfig(config) {
   return OdooRDD.template_saveConfig(config); 
 }
 
-// --- Fonctions supprimées : showTabMappingSidebar, showColumnMappingSidebar ---
+/**
+ * @customfunction
+ */
+function TVA(vatNumber, mode) {
+  return OdooRDD.TVA(vatNumber, mode);
+}
+
+/**
+ * @customfunction
+ */
+function IBAN(ibanValue, mode) {
+  return OdooRDD.IBAN(ibanValue, mode);
+}
+
 
 // Bridge pour la sidebar contextuelle (Unique)
 function showContextualMappingSidebar() {

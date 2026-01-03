@@ -56,7 +56,7 @@ function TVA(vatNumber, mode) {
   // DEFAULT MODE: API Check
   const result = _tva_apiCheck(parsed.countryCode, parsed.vatNumber);
   if (result.valid) {
-    return mode === 'debug' ? "VALIDE" : vat;
+    return mode === 'debug' ? vat : vat;
   } else {
     return mode === 'debug' ? "API:" + _tva_convertErrorToReason(result.error) : "";
   }
@@ -166,7 +166,7 @@ function IBAN(ibanValue, mode) {
     return mode === 'debug' ? "BBAN:INVALID_" + cc : "";
   }
   
-  return mode === 'debug' ? "VALIDE" : iban;
+  return mode === 'debug' ? iban : iban;
 }
 
 function _iban_validateFormat(iban) {
