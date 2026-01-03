@@ -340,7 +340,7 @@ function formatActiveSheet() {
       if (sheet.getFilter()) {
         sheet.getFilter().remove();
       }
-      headerRange.createFilter();
+      range.createFilter();
       
       return { success: true, message: "Mise en forme appliquée avec succès." };
     }

@@ -26,6 +26,10 @@ var SMART_TABLES = {
   ODOO_CACHE: {
     startCol: 12, // Colonne L
     columns: ['models', 'fields']
+  },
+  TAB_PAYS: {
+    startCol: 15, // Colonne O
+    columns: ['Code du pays', 'Nom du pays']
   }
 };
 
