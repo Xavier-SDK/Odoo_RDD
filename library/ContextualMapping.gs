@@ -41,13 +41,25 @@ function getInitialMappingData(targetSheetName) {
   // 4. Mappings existants pour cet onglet - Utilise l'ID
   var existingMappings = getColumnMappings(idOnglet);
   
+  // 5. Identifier les entêtes non mappés (ni champ Odoo ni "-- ne pas importer --")
+  var unmappedHeaders = [];
+  columns.forEach(function(header) {
+    var mapping = existingMappings[header];
+    // Si undefined ou null (pas dans le dictionnaire), c'est non mappé
+    if (mapping === undefined || mapping === null) {
+      unmappedHeaders.push(header);
+    }
+    // Si "" (chaîne vide), c'est "-- ne pas importer --", donc mappé
+  });
+  
   return {
     sheetName: sheetName,
     sheetId: idOnglet,
     availableSheets: availableSheets,
     currentModel: currentModel,
     columns: columns,
-    existingMappings: existingMappings
+    existingMappings: existingMappings,
+    unmappedHeaders: unmappedHeaders  // Nouveauté : liste des entêtes à mapper
   };
 }
 

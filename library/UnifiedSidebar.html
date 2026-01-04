@@ -349,9 +349,7 @@
                 Sélectionnez un modèle pour commencer.
             </div>
 
-            <button id="ai-btn" class="ai-btn" disabled><i class="fa fa-magic"></i> Suggestions IA</button>
-            <button id="save-btn" disabled>Sauvegarder le mapping</button>
-            <button id="test-btn" disabled>Tester (10 lignes)</button>
+            <!-- Buttons removed: Auto-AI and Auto-Save implemented -->
 
             <div class="loading" id="mapping-loading">Chargement...</div>
             <div id="mapping-status" class="status"></div>
@@ -443,9 +441,9 @@
                 e.preventDefault();
                 loadModels(true);
             });
-            safeAddListener('save-btn', 'click', saveMapping);
-            safeAddListener('test-btn', 'click', testMapping);
-            safeAddListener('ai-btn', 'click', loadAiSuggestions);
+            // safeAddListener('save-btn', 'click', saveMapping); // Removed - auto-save
+            // safeAddListener('test-btn', 'click', testMapping); // Removed
+            // safeAddListener('ai-btn', 'click', loadAiSuggestions); // Removed - auto-AI
 
             // Formatage (Global)
             safeAddListener('format-btn', 'click', handleFormatting);
@@ -760,6 +758,7 @@
             state.currentModel = data.currentModel;
             state.columns = data.columns;
             state.existingMappings = data.existingMappings || {};
+            state.unmappedHeaders = data.unmappedHeaders || [];  // Nouveauté
 
             var sheetSelect = document.getElementById('sheet-select');
             sheetSelect.innerHTML = '';
@@ -809,16 +808,18 @@
 
         function loadFields(modelName, forceRefresh) {
             showStatus('Chargement champs...', 'info');
-            document.getElementById('save-btn').disabled = true;
 
             google.script.run
                 .withSuccessHandler(function (fields) {
                     state.fields = fields;
                     renderColumnMappings();
                     hideStatus();
-                    document.getElementById('save-btn').disabled = false;
-                    document.getElementById('test-btn').disabled = false;
-                    document.getElementById('ai-btn').disabled = false;
+
+                    // Auto-AI : Si des entêtes ne sont pas mappés, lancer suggestions automatiquement
+                    if (state.unmappedHeaders && state.unmappedHeaders.length > 0) {
+                        console.log('[AUTO-AI] Triggering for ' + state.unmappedHeaders.length + ' unmapped headers');
+                        triggerAutoAiSuggestions();
+                    }
                 })
                 .withFailureHandler(function (err) {
                     showError('Erreur chargement champs: ' + err.message);
@@ -828,6 +829,61 @@
             if (!forceRefresh) {
                 google.script.run.getModelFields(modelName, true);
             }
+        }
+
+        // Auto-AI : Suggestions silencieuses pour entêtes non mappés
+        function triggerAutoAiSuggestions() {
+            console.log('[AUTO-AI] Starting auto-suggestions...');
+            console.log('[AUTO-AI] Unmapped headers:', state.unmappedHeaders);
+
+            if (!state.unmappedHeaders || state.unmappedHeaders.length === 0) {
+                console.log('[AUTO-AI] No unmapped headers, skipping');
+                return;
+            }
+
+            if (!state.fields || state.fields.length === 0) {
+                console.log('[AUTO-AI] No fields loaded, skipping');
+                return;
+            }
+
+            showStatus('✨ Suggestions IA en cours...', 'info');
+
+            google.script.run
+                .withSuccessHandler(function (suggestions) {
+                    console.log('[AUTO-AI] Received suggestions:', suggestions);
+                    hideStatus();
+
+                    if (!suggestions || Object.keys(suggestions).length === 0) {
+                        console.log('[AUTO-AI] No suggestions returned');
+                        return;
+                    }
+
+                    // Appliquer les suggestions aux champs non mappés
+                    var selects = document.querySelectorAll('.field-select');
+                    var count = 0;
+                    selects.forEach(function (select) {
+                        var colName = select.getAttribute('data-column');
+                        if (suggestions[colName] && !select.value) {
+                            select.value = suggestions[colName];
+                            count++;
+                        }
+                    });
+
+                    console.log('[AUTO-AI] Applied ' + count + ' suggestions');
+
+                    if (count > 0) {
+                        showStatus('✨ ' + count + ' suggestion(s) appliquée(s)', 'success');
+                        setTimeout(hideStatus, 2000);
+
+                        // Auto-save après application des suggestions
+                        autoSaveMapping();
+                    }
+                })
+                .withFailureHandler(function (err) {
+                    console.error('[AUTO-AI] Error:', err);
+                    hideStatus();
+                })
+                .getAiMappingSuggestions(state.unmappedHeaders, state.fields);
         }
 
         function loadAiSuggestions() {
@@ -921,6 +977,30 @@
             console.log('[CLIENT] Request sent to server, waiting for response...');
         }
 
+        // Auto-save : Sauvegarde silencieuse après chaque modification
+        function autoSaveMapping() {
+            console.log('[AUTO-SAVE] Triggering silent save...');
+
+            var columnMappings = {};
+            var selects = document.querySelectorAll('.field-select');
+            selects.forEach(function (select) {
+                var colName = select.getAttribute('data-column');
+                columnMappings[colName] = select.value;
+            });
+
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    console.log('[AUTO-SAVE] Saved successfully');
+                    showStatus('✓ Enregistré', 'success');
+                    setTimeout(hideStatus, 1500);
+                })
+                .withFailureHandler(function (err) {
+                    console.error('[AUTO-SAVE] Error:', err);
+                    showError('Erreur sauvegarde: ' + err.message);
+                })
+                .saveContextualMapping(state.sheetName, state.currentModel, columnMappings);
+        }
+
         function renderColumnMappings() {
             var container = document.getElementById('column-mappings');
             container.innerHTML = '';
@@ -972,6 +1052,12 @@
                     opt.textContent = f.text;
                     if (f.id === selectedFieldId) opt.selected = true;
                     select.appendChild(opt);
+                });
+
+                // Auto-save listener : sauvegarder automatiquement à chaque changement
+                select.addEventListener('change', function () {
+                    console.log('[FIELD-CHANGE] Field changed for: ' + colName);
+                    autoSaveMapping();
                 });
 
                 row.appendChild(select);
