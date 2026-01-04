@@ -263,6 +263,16 @@ function template_showContextualMappingSidebar() {
   return createUnifiedSidebar();
 }
 
+function template_showExportSidebar() {
+  PropertiesService.getUserProperties().setProperty('SIDEBAR_MODE', 'EXPORT');
+  return createUnifiedSidebar();
+}
+
+function template_showImportSidebar() {
+  PropertiesService.getUserProperties().setProperty('SIDEBAR_MODE', 'IMPORT');
+  return createUnifiedSidebar();
+}
+
 function createUnifiedSidebar() {
   Logger.log('createUnifiedSidebar called');
   try {
@@ -374,7 +384,8 @@ function template_createOdooMenu(statusEmoji) {
       .addItem('Formatage', 'formatActiveSheet')
       .addItem('Enrichissement', 'showEnrichmentSidebar')
       .addItem('Fusionner', 'enrichment_mergeTabs'))
-    .addItem('Export vers Odoo', 'showPlaceholder')
+    .addItem('Export vers Odoo', 'showExportSidebar')
+    .addItem('Import depuis Odoo', 'showImportSidebar')
     .addSeparator()
     .addSubMenu(ui.createMenu('Outils')
       .addItem('Tester la connexion', 'testConnectionFromMenu')

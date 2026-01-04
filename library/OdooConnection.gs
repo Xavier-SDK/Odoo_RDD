@@ -293,9 +293,21 @@ function convertToXmlRpc(data) {
     return xml;
   }
   if (typeof data === 'object') {
+    if (data instanceof Date) {
+      // Formater la date pour Odoo (YYYY-MM-DD HH:mm:ss)
+      var pad = function(n) { return n < 10 ? '0' + n : n; };
+      return '<string>' + data.getUTCFullYear() + '-' + 
+             pad(data.getUTCMonth() + 1) + '-' + 
+             pad(data.getUTCDate()) + ' ' + 
+             pad(data.getUTCHours()) + ':' + 
+             pad(data.getUTCMinutes()) + ':' + 
+             pad(data.getUTCSeconds()) + '</string>';
+    }
     var xml = '<struct>';
     for (var key in data) {
-      xml += '<member><name>' + escapeXml(key) + '</name><value>' + convertToXmlRpc(data[key]) + '</value></member>';
+      if (data.hasOwnProperty(key)) {
+        xml += '<member><name>' + escapeXml(key) + '</name><value>' + convertToXmlRpc(data[key]) + '</value></member>';
+      }
     }
     xml += '</struct>';
     return xml;
@@ -353,4 +365,173 @@ function parseXmlValue(element) {
     case 'nil': return null;
     default: return value.getText();
   }
+}
+
+/**
+ * Exécute une méthode XML-RPC générique sur un modèle Odoo
+ */
+function odooExecute(config, model, method, params, kwargs) {
+  var url = normalizeOdooUrl(config.url);
+  var xmlRpcUrl = url + '/xmlrpc/2/object';
+  
+  var authParams = [
+    config.database,
+    parseInt(config.uid || 0),
+    config.apiKey,
+    model,
+    method,
+    params || []
+  ];
+  
+  if (kwargs) {
+    authParams.push(kwargs);
+  }
+  
+  // Si UID n'est pas fourni, on doit s'authentifier d'abord (ce serait lourd à chaque appel)
+  // Idéalement, config doit contenir l'UID après un test de connexion réussi
+  // Pour l'instant, on suppose que config a été enrichi avec l'UID lors de la connexion/test
+  
+  var payload = buildXmlRpcPayload('execute_kw', authParams);
+  
+  var response = UrlFetchApp.fetch(xmlRpcUrl, {
+    method: 'post',
+    contentType: 'text/xml',
+    payload: payload,
+    muteHttpExceptions: true
+  });
+  
+  if (response.getResponseCode() !== 200) {
+    throw new Error('Erreur HTTP Odoo (' + response.getResponseCode() + '): ' + response.getContentText());
+  }
+  
+  var responseText = response.getContentText();
+  if (responseText.indexOf('<fault>') !== -1) {
+    throw new Error('Erreur Odoo: ' + parseFaultString(responseText));
+  }
+  
+  return parseXmlRpcResponse(responseText);
+}
+
+function odooSearchRead(config, model, domain, fields) {
+  return odooExecute(config, model, 'search_read', [domain], {'fields': fields || []});
+}
+
+function odooCreate(config, model, values) {
+  return odooExecute(config, model, 'create', [values]);
+}
+
+function odooWrite(config, model, ids, values) {
+  return odooExecute(config, model, 'write', [ids, values]);
+}
+
+/**
+ * Appelle une méthode Odoo arbitraire
+ */
+function odooCall(config, model, method, args) {
+  var url = normalizeOdooUrl(config.url);
+  var xmlRpcUrl = url + '/xmlrpc/2/object';
+  
+  var authParams = [
+    config.database,
+    parseInt(config.uid || 0),
+    config.apiKey,
+    model,
+    method,
+    args || []
+  ];
+  
+  var payload = buildXmlRpcPayload('execute_kw', authParams);
+  
+  var response = UrlFetchApp.fetch(xmlRpcUrl, {
+    method: 'post',
+    contentType: 'text/xml',
+    payload: payload,
+    muteHttpExceptions: true
+  });
+  
+  if (response.getResponseCode() !== 200) {
+    throw new Error('Erreur HTTP Odoo (' + response.getResponseCode() + ')');
+  }
+  
+  var responseText = response.getContentText();
+  if (responseText.indexOf('<fault>') !== -1) {
+    throw new Error('Erreur Odoo: ' + parseFaultString(responseText));
+  }
+  
+  return parseXmlRpcResponse(responseText);
+}
+
+function normalizeOdooUrl(url) {
+  url = url.trim();
+  if (url.endsWith('/')) {
+    url = url.substring(0, url.length - 1);
+  }
+  if (!url.startsWith('http')) {
+    url = 'https://' + url;
+  }
+  return url;
+}
+
+function escapeXml(unsafe) {
+  if (typeof unsafe !== 'string') return unsafe;
+  return unsafe.replace(/[<>&'"]/g, function (c) {
+    switch (c) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+      case '\'': return '&apos;';
+      case '"': return '&quot;';
+    }
+  });
+}
+
+function buildXmlRpcPayload(methodName, paramsArray) {
+  var xml = '<?xml version="1.0"?>';
+  xml += '<methodCall>';
+  xml += '<methodName>' + methodName + '</methodName>';
+  xml += '<params>';
+  
+  for (var i = 0; i < paramsArray.length; i++) {
+    xml += '<param><value>' + convertToXmlRpc(paramsArray[i]) + '</value></param>';
+  }
+  
+  xml += '</params>';
+  xml += '</methodCall>';
+  return xml;
+}
+
+function convertToXmlRpc(data) {
+  if (data === null || data === undefined) {
+    return '<nil/>';
+  }
+  if (typeof data === 'boolean') {
+    return '<boolean>' + (data ? '1' : '0') + '</boolean>';
+  }
+  if (typeof data === 'number') {
+    if (Number.isInteger(data)) {
+      return '<int>' + data + '</int>';
+    } else {
+      return '<double>' + data + '</double>';
+    }
+  }
+  if (Array.isArray(data)) {
+    var xml = '<array><data>';
+    for (var i = 0; i < data.length; i++) {
+      xml += '<value>' + convertToXmlRpc(data[i]) + '</value>';
+    }
+    xml += '</data></array>';
+    return xml;
+  }
+  if (typeof data === 'object') {
+    var xml = '<struct>';
+    for (var key in data) {
+      xml += '<member>';
+      xml += '<name>' + key + '</name>';
+      xml += '<value>' + convertToXmlRpc(data[key]) + '</value>';
+      xml += '</member>';
+    }
+    xml += '</struct>';
+    return xml;
+  }
+  return '<string>' + escapeXml(String(data)) + '</string>';
 }

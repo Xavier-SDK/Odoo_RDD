@@ -53,8 +53,19 @@ function getFields(config, model) {
   
   var fields = execute_kw(config, model, 'fields_get', [
     [], // All fields
-    ['string', 'help', 'type', 'required', 'readonly', 'relation'] // Attributes
+    ['string', 'help', 'type', 'required', 'readonly', 'relation', 'selection'] // Attributes
   ]);
+  
+  // Injecter le champ virtuel ID Externe (xml_id) pour le mapping
+  if (fields) {
+    fields['xml_id'] = {
+      'string': 'ID Externe (Système)',
+      'help': 'ID unique utilisé pour la synchronisation (Module.ID)',
+      'type': 'char',
+      'required': false,
+      'readonly': false // On permet le mapping
+    };
+  }
   
   return fields;
 }

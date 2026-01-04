@@ -355,8 +355,6 @@
             <div id="mapping-status" class="status"></div>
         </div>
 
-        <!-- View Removed: Formatting Sidebar -->
-
         <!-- Vue Enrichissement -->
         <div id="enrichment-view">
             <h3>💾 Sauvegarde</h3>
@@ -376,6 +374,63 @@
 
             <div class="loading" id="enrichment-loading">Traitement en cours...</div>
             <div id="enrichment-status" class="status"></div>
+        </div>
+
+        <!-- Vue Export -->
+        <div id="export-view" style="display:none;">
+            <h3>📤 Export vers Odoo</h3>
+            <div class="info-text">
+                <p>Onglet : <span id="export-sheet-name" class="highlight">...</span></p>
+                <p>Modèle : <span id="export-model-name" class="highlight">...</span></p>
+                <p>Lignes à traiter : <span id="export-total-rows" class="highlight">...</span></p>
+            </div>
+
+            <div id="export-error-msg" class="error-msg" style="display:none; margin-bottom:10px;"></div>
+
+            <div style="display:flex; justify-content:center;">
+                <button id="stop-export-btn" class="secondary"
+                    style="flex:1; display:none; background-color: #d32f2f; color: white; max-width: 200px;">🛑 STOP
+                    EXPORT</button>
+            </div>
+            <div id="export-progress-area" style="display:none; margin-top:20px;">
+                <div class="console-status" id="export-status-text">Initialisation...</div>
+                <div class="progress-container">
+                    <div id="export-progress-bar" class="progress-bar" style="width:0%"></div>
+                    <div id="export-progress-p" class="progress-text">0%</div>
+                </div>
+                <div class="logs-console" id="export-logs"
+                    style="max-height: calc(100vh - 420px); min-height: 150px; overflow-y: auto; background: #f8f9fa; border: 1px solid #ddd; padding: 5px; font-size: 11px; margin-top: 10px; font-family: monospace;">
+                </div>
+            </div>
+        </div>
+
+        <!-- Vue Import -->
+        <div id="import-view" style="display:none;">
+            <h3>📥 Import depuis Odoo</h3>
+            <div class="info-text">
+                <p>Onglet : <span id="import-sheet-name" class="highlight">...</span></p>
+                <p>Modèle : <span id="import-model-name" class="highlight">...</span></p>
+                <p>Enregistrements Odoo : <span id="import-total-records" class="highlight">...</span></p>
+                <p>Lignes actuelles : <span id="import-current-rows" class="highlight">...</span></p>
+            </div>
+
+            <div id="import-error-msg" class="error-msg" style="display:none; margin-bottom:10px;"></div>
+
+            <div style="display:flex; justify-content:center;">
+                <button id="stop-import-btn" class="secondary"
+                    style="flex:1; display:none; background-color: #d32f2f; color: white; max-width: 200px;">🛑 STOP
+                    IMPORT</button>
+            </div>
+            <div id="import-progress-area" style="display:none; margin-top:20px;">
+                <div class="console-status" id="import-status-text">Initialisation...</div>
+                <div class="progress-container">
+                    <div id="import-progress-bar" class="progress-bar" style="width:0%"></div>
+                    <div id="import-progress-p" class="progress-text">0%</div>
+                </div>
+                <div class="logs-console" id="import-logs"
+                    style="max-height: calc(100vh - 480px); min-height: 150px; overflow-y: auto; background: #f8f9fa; border: 1px solid #ddd; padding: 5px; font-size: 11px; margin-top: 10px; font-family: monospace;">
+                </div>
+            </div>
         </div>
 
         <!-- Odoo Console (Visible pendant les traitements longs) -->
@@ -431,19 +486,18 @@
                 e.preventDefault();
                 loadModels(true);
             });
-            // safeAddListener('save-btn', 'click', saveMapping); // Removed - auto-save
-            // safeAddListener('test-btn', 'click', testMapping); // Removed
-            // safeAddListener('ai-btn', 'click', loadAiSuggestions); // Removed - auto-AI
-
-            // Formatage (Global)
-            // safeAddListener('format-btn', 'click', handleFormatting); // Removed
 
             // Enrichissement
             safeAddListener('saveBackupBtn', 'click', handleSaveBackup);
             safeAddListener('restoreBackupBtn', 'click', handleRestoreBackup);
-            safeAddListener('populateStatesBtn', 'click', handlePopulateStates);
             safeAddListener('populateCountriesBtn', 'click', handlePopulateCountries);
             safeAddListener('formatPhonesBtn', 'click', handleFormatPhones);
+
+            // Export
+            safeAddListener('stop-export-btn', 'click', stopExportProcess);
+
+            // Import
+            safeAddListener('stop-import-btn', 'click', stopImportProcess);
         }
 
         function initializeSidebar(data) {
@@ -457,6 +511,10 @@
                 initFormattingView(data);
             } else if (currentMode === 'ENRICHMENT') {
                 initEnrichmentView(data);
+            } else if (currentMode === 'EXPORT') {
+                initExportView(data);
+            } else if (currentMode === 'IMPORT') {
+                initImportView(data);
             }
         }
 
@@ -606,8 +664,6 @@
             document.getElementById('formatting-view').style.display = 'block';
             document.getElementById('enrichment-view').style.display = 'none';
         }
-
-        // function handleFormatting() { ... } // Removed
 
         // === VUE CONFIGURATION ===
         function initConfigView(data) {
@@ -1179,6 +1235,192 @@
             }
         }
 
+        // === VUE EXPORT ===
+        var exportState = {
+            totalRows: 0,
+            processedRows: 0,
+            batchSize: 50,
+            hasErrors: false
+        };
+
+        function initExportView() {
+            document.getElementById('config-view').style.display = 'none';
+            document.getElementById('mapping-view').style.display = 'none';
+            document.getElementById('enrichment-view').style.display = 'none';
+            document.getElementById('export-view').style.display = 'block';
+
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    if (result.success) {
+                        document.getElementById('export-sheet-name').textContent = result.sheetName;
+                        document.getElementById('export-model-name').textContent = result.modelName;
+                        document.getElementById('export-total-rows').textContent = result.totalRows;
+
+                        exportState.totalRows = result.totalRows;
+
+                        // Lancement automatique
+                        if (result.totalRows > 0) {
+                            startExportProcess();
+                        } else {
+                            logExport("⚠️ Aucune donnée à exporter.");
+                        }
+                    } else {
+                        document.getElementById('export-error-msg').textContent = result.message;
+                        document.getElementById('export-error-msg').style.display = 'block';
+                    }
+                })
+                .withFailureHandler(function (err) {
+                    document.getElementById('export-error-msg').textContent = "Erreur: " + err.message;
+                    document.getElementById('export-error-msg').style.display = 'block';
+                })
+                .prepareForExport();
+        }
+
+        function logExport(msg, isError) {
+            var consoleDiv = document.getElementById('export-logs');
+            var line = document.createElement('div');
+            line.textContent = '> ' + msg;
+            if (isError) line.style.color = 'red';
+            consoleDiv.appendChild(line);
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        }
+
+        function startExportProcess() {
+            if (exportState.totalRows === 0) {
+                return;
+            }
+
+            var stopBtn = document.getElementById('stop-export-btn');
+            if (stopBtn) {
+                stopBtn.style.display = 'block';
+                stopBtn.disabled = false;
+                stopBtn.onclick = stopExportProcess;
+            }
+
+            document.getElementById('export-progress-area').style.display = 'block';
+            document.getElementById('export-logs').innerHTML = ''; // Clear logs
+
+            exportState.processedRows = 0;
+            exportState.stopRequested = false; // Reset stop flag
+
+            updateExportProgress(0, 'Démarrage...');
+
+            processNextBatch(0);
+        }
+
+        function stopExportProcess() {
+            exportState.stopRequested = true;
+            document.getElementById('stop-export-btn').disabled = true;
+            document.getElementById('stop-export-btn').textContent = "Arrêt en cours...";
+            logExport("🛑 Arrêt demandé par l'utilisateur...", true);
+        }
+
+        function processNextBatch(startIndex) {
+            // Check stop
+            if (exportState.stopRequested) {
+                updateExportProgress(Math.round((startIndex / exportState.totalRows) * 100), 'Arrêté par utilisateur');
+                logExport('❌ Export interrompu par l\'utilisateur.');
+                resetExportButtons();
+                return;
+            }
+
+            if (startIndex >= exportState.totalRows) {
+                updateExportProgress(100, 'Export terminé !');
+                logExport('✅ Terminé. ' + exportState.totalRows + ' lignes traitées.');
+                resetExportButtons();
+                return;
+            }
+
+            var batchSize = exportState.batchSize;
+            var endIndex = Math.min(startIndex + batchSize, exportState.totalRows);
+            var indices = [];
+            for (var i = startIndex; i < endIndex; i++) indices.push(i);
+
+            updateExportProgress(
+                Math.round((startIndex / exportState.totalRows) * 100),
+                'Traitement lot ' + (startIndex + 1) + '-' + endIndex + '...'
+            );
+
+            // Appeler le serveur
+            var sheetName = document.getElementById('export-sheet-name').textContent;
+
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    // Check stop flag from server (error trigger) or global stop
+                    if (exportState.stopRequested) {
+                        logExport('❌ Arrêt confirmé.', true);
+                        resetExportButtons();
+                        return;
+                    }
+
+                    if (result.error) {
+                        logExport('⛔ Erreur globale: ' + result.error, true);
+                        logExport('💡 Action: Vérifiez les données et réessayez.', false);
+                        // Arrêt sur erreur globale
+                        resetExportButtons();
+                        return;
+                    } else {
+                        // Display operation logs first
+                        if (result.logs && result.logs.length > 0) {
+                            result.logs.forEach(function (log) {
+                                logExport(log, false);
+                            });
+                        }
+
+                        // Log summary for this batch
+                        if (result.createdCount > 0 || result.updatedCount > 0) {
+                            var summary = '📦 Lot ' + (Math.floor(startIndex / exportState.batchSize) + 1) + ': ';
+                            if (result.createdCount > 0) summary += result.createdCount + ' création(s)';
+                            if (result.updatedCount > 0) {
+                                if (result.createdCount > 0) summary += ', ';
+                                summary += result.updatedCount + ' mise(s) à jour';
+                            }
+                            logExport(summary);
+                        }
+
+                        // Log individual errors with details
+                        if (result.errors && result.errors.length > 0) {
+                            logExport('⚠️ Erreurs détectées:', true);
+                            result.errors.forEach(function (e) {
+                                logExport('  • ' + e, true);
+                            });
+                        }
+
+                        // Arrêt automatique demandé par le serveur (pour erreur bloquante dans le batch)
+                        if (result.stop) {
+                            logExport('', false);
+                            logExport('🛑 Export arrêté automatiquement suite à une erreur.', true);
+                            logExport('💡 Corrigez les données ci-dessus puis relancez l\'export.', false);
+                            logExport('', false);
+                            updateExportProgress(Math.round((endIndex / exportState.totalRows) * 100), 'Arrêté sur erreur');
+                            resetExportButtons();
+                            return;
+                        }
+                    }
+                    exportState.processedRows += indices.length;
+                    processNextBatch(endIndex);
+                })
+                .withFailureHandler(function (err) {
+                    logExport('🔥 Erreur système: ' + err.message, true);
+                    logExport('💡 Contactez le support si le problème persiste.', false);
+                    resetExportButtons();
+                })
+                .processExportBatch(sheetName, indices);
+        }
+
+        function resetExportButtons() {
+            document.getElementById('start-export-btn').style.display = 'block';
+            document.getElementById('start-export-btn').disabled = false;
+            document.getElementById('stop-export-btn').style.display = 'none';
+            document.getElementById('stop-export-btn').textContent = "STOP"; // Reset text
+        }
+
+        function updateExportProgress(percent, text) {
+            document.getElementById('export-progress-bar').style.width = percent + '%';
+            document.getElementById('export-progress-p').textContent = percent + '%';
+            document.getElementById('export-status-text').textContent = text;
+        }
+
         function startPolling() {
             stopPolling();
             pollingInterval = setInterval(function () {
@@ -1208,6 +1450,134 @@
                 clearInterval(pollingInterval);
                 pollingInterval = null;
             }
+        }
+
+        // === VUE IMPORT ===
+        var importState = { totalRecords: 0, processedRecords: 0, batchSize: 50, stopRequested: false };
+
+        function initImportView() {
+            document.getElementById('config-view').style.display = 'none';
+            document.getElementById('mapping-view').style.display = 'none';
+            document.getElementById('enrichment-view').style.display = 'none';
+            document.getElementById('export-view').style.display = 'none';
+            document.getElementById('import-view').style.display = 'block';
+
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    if (result.success) {
+                        document.getElementById('import-sheet-name').textContent = result.sheetName;
+                        document.getElementById('import-model-name').textContent = result.modelName;
+                        document.getElementById('import-total-records').textContent = result.totalRecords || 'Calcul...';
+                        document.getElementById('import-current-rows').textContent = result.currentRows;
+
+                        importState.totalRecords = result.totalRecords || 1000;
+
+                        // Lancement automatique
+                        startImportProcess();
+                    } else {
+                        document.getElementById('import-error-msg').textContent = result.message;
+                        document.getElementById('import-error-msg').style.display = 'block';
+                    }
+                })
+                .withFailureHandler(function (err) {
+                    document.getElementById('import-error-msg').textContent = 'Erreur: ' + err.message;
+                    document.getElementById('import-error-msg').style.display = 'block';
+                })
+                .prepareForImport();
+        }
+
+        function startImportProcess() {
+            importState.stopRequested = false;
+            importState.processedRecords = 0;
+
+            document.getElementById('stop-import-btn').style.display = 'block';
+            document.getElementById('stop-import-btn').disabled = false;
+            document.getElementById('import-progress-area').style.display = 'block';
+            document.getElementById('import-logs').innerHTML = '';
+
+            logImport('🚀 Démarrage de l\'import...');
+            processNextImportBatch(0);
+        }
+
+        function stopImportProcess() {
+            importState.stopRequested = true;
+            document.getElementById('stop-import-btn').disabled = true;
+            logImport("🛑 Arrêt demandé par l'utilisateur...", true);
+        }
+
+        function processNextImportBatch(offset) {
+            if (importState.stopRequested) {
+                logImport('❌ Import interrompu.');
+                resetImportButtons();
+                return;
+            }
+
+            var sheetName = document.getElementById('import-sheet-name').textContent;
+            var batchSize = importState.batchSize;
+
+            updateImportProgress(
+                Math.round((offset / importState.totalRecords) * 100),
+                'Import offset ' + offset + '...'
+            );
+
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    if (importState.stopRequested || result.error) {
+                        logImport('❌ ' + (result.error || 'Arrêté par l\'utilisateur'), true);
+                        resetImportButtons();
+                        return;
+                    }
+
+                    if (result.logs) {
+                        result.logs.forEach(function (log) {
+                            logImport(log);
+                        });
+                    }
+
+                    if (result.importedCount > 0 || result.skippedCount > 0) {
+                        logImport('📦 Batch ' + offset + ': ' + result.importedCount + ' importé(s), ' + result.skippedCount + ' ignoré(s)');
+                    }
+
+                    if (!result.hasMore || result.importedCount === 0) {
+                        logImport('✅ Import terminé avec succès !');
+                        updateImportProgress(100, 'Import terminé');
+                        resetImportButtons();
+                        return;
+                    }
+
+                    if (result.stop) {
+                        logImport('🛑 Arrêt automatique sur erreur.', true);
+                        resetImportButtons();
+                        return;
+                    }
+
+                    processNextImportBatch(offset + batchSize);
+                })
+                .withFailureHandler(function (err) {
+                    logImport('🔥 Erreur système: ' + err.message, true);
+                    resetImportButtons();
+                })
+                .processImportBatch(sheetName, offset, batchSize);
+        }
+
+        function updateImportProgress(percent, statusText) {
+            document.getElementById('import-progress-bar').style.width = percent + '%';
+            document.getElementById('import-progress-p').textContent = Math.round(percent) + '%';
+            document.getElementById('import-status-text').textContent = statusText;
+        }
+
+        function logImport(message, isError) {
+            var logsDiv = document.getElementById('import-logs');
+            var line = document.createElement('div');
+            line.textContent = message;
+            if (isError) line.style.color = '#d32f2f';
+            logsDiv.appendChild(line);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+
+        function resetImportButtons() {
+            document.getElementById('stop-import-btn').style.display = 'none';
+            document.getElementById('stop-import-btn').textContent = "STOP";
         }
     </script>
 </body>

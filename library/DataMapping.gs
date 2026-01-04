@@ -48,49 +48,8 @@ function getColumnMappings(idOnglet) {
  * @param {Array} fields - Liste des champs formatés {id, text, string}
  */
 function applyValidationRow(sheetName, fields) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(sheetName);
-  if (!sheet) return;
-  
-  // Vérifier si la ligne 2 est déjà une ligne de validation (on suppose que oui ou on l'insère)
-  // Pour simplifier : Ligne 1 = En-têtes clients, Ligne 2 = Mapping Odoo
-  
-  var lastCol = sheet.getLastColumn();
-  if (lastCol === 0) return;
-  
-  var idOnglet = sheet.getSheetId().toString();
-  var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
-  var mappings = getColumnMappings(idOnglet);
-  
-  // Appliquer le formatage à la ligne 2
-  var validationRange = sheet.getRange(2, 1, 1, lastCol);
-  validationRange.setBackground('#f3f3f3');
-  validationRange.setFontColor('#666666');
-  validationRange.setFontStyle('italic');
-  
-  // Préparer la validation de données (menu déroulant)
-  var fieldTexts = fields.map(function(f) { return f.text; });
-  var rule = SpreadsheetApp.newDataValidation()
-    .requireValueInList(fieldTexts)
-    .setAllowInvalid(false)
-    .build();
-    
-  for (var i = 0; i < headers.length; i++) {
-    var cell = sheet.getRange(2, i + 1);
-    cell.setDataValidation(rule);
-    
-    // Si un mapping existe déjà, on le sélectionne
-    var mappedFieldId = mappings[headers[i]];
-    if (mappedFieldId) {
-      var field = fields.find(function(f) { return f.id === mappedFieldId; });
-      if (field) {
-        cell.setValue(field.text);
-      }
-    }
-  }
-  
-  // Figer les 2 premières lignes
-  sheet.setFrozenRows(2);
+  // OBSOLETE: Le mapping est désormais géré centralement dans Paramètres.
+  // On ne pollue plus les onglets avec une ligne de validation technique.
 }
 
 /**
@@ -142,4 +101,46 @@ function cleanupOrphanMappings() {
       }
     });
   }
+}
+
+/**
+ * Synchronise les lettres de colonne dans Paramètres
+ * @param {String} sheetId
+ * @param {Array} headers
+ */
+function syncColumnLetters(sheetId, headers) {
+  if (!headers || headers.length === 0) return;
+  
+  headers.forEach(function(header, index) {
+    if (!header) return;
+    var headerName = String(header).trim();
+    
+    // Read existing entry to preserve Champ Odoo
+    var existing = findInSmartTable('ODOO_FIELDS', {
+      'ID Onglet': sheetId, 
+      'Entête': headerName
+    });
+    
+    // Build values - preserve existing field mapping
+    // On met le nom de l'entête dans la colonne 'Colonne' pour le mapping par nom
+    var values = {'Colonne': headerName};
+    if (existing && existing['Champ Odoo']) {
+      values['Champ Odoo'] = existing['Champ Odoo'];
+    }
+    
+    upsertSmartTable('ODOO_FIELDS', 
+      {'ID Onglet': sheetId, 'Entête': headerName},
+      values
+    );
+  });
+}
+
+function indexToColumnLetter(index) {
+  var temp, letter = '';
+  while (index >= 0) {
+    temp = index % 26;
+    letter = String.fromCharCode(temp + 65) + letter;
+    index = (index - temp - 1) / 26;
+  }
+  return letter;
 }

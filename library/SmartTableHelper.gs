@@ -287,8 +287,10 @@ function setParameter(paramName, value) {
  * @return {String|null} Nom du modèle ou null
  */
 function setOdooField(idOnglet, columnName, columnHeader, fieldId) {
+  // On utilise le nom de l'entête à la fois pour 'Colonne' et 'Entête' 
+  // car l'index de lettre (A, B, C) n'est plus fiable en cas de déplacement.
   upsertSmartTable('ODOO_FIELDS',
-    {'ID Onglet': idOnglet, 'Colonne': columnName},
+    {'ID Onglet': idOnglet, 'Colonne': columnHeader},
     {'Entête': columnHeader, 'Champ Odoo': fieldId}
   );
 }
@@ -325,7 +327,7 @@ function getOdooFields(idOnglet) {
   var rows = filterSmartTable('ODOO_FIELDS', {'ID Onglet': idOnglet});
   var mappings = {};
   rows.forEach(function(row) {
-    var headerName = row['Entête']; 
+    var headerName = row['Entête'] || row['Colonne']; 
     var fieldId = row['Champ Odoo'];
     // On garde même si fieldId est vide (cas '-- Ne pas importer --')
     if (headerName) mappings[headerName] = fieldId !== undefined ? fieldId : "";
