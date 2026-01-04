@@ -8,8 +8,8 @@
  * @param {String} sheetName - Nom de l'onglet
  * @param {String} modelName - Nom du modèle Odoo
  */
-function saveTabMapping(sheetName, modelName) {
-  setOdooModel(sheetName, modelName);
+function saveTabMapping(idOnglet, modelName) {
+  setOdooModel(idOnglet, modelName);
   return { success: true };
 }
 
@@ -18,8 +18,8 @@ function saveTabMapping(sheetName, modelName) {
  * @param {String} sheetName - Nom de l'onglet
  * @return {String|null} Nom du modèle
  */
-function getTabMapping(sheetName) {
-  return getOdooModel(sheetName);
+function getTabMapping(idOnglet) {
+  return getOdooModel(idOnglet);
 }
 
 /**
@@ -28,11 +28,8 @@ function getTabMapping(sheetName) {
  * @param {String} columnName - Nom de la colonne (en-tête)
  * @param {String} fieldName - Nom du champ technique Odoo
  */
-function saveColumnMapping(sheetName, columnName, fieldName) {
-  // L'en-tête est le même que columnName dans notre cas
-  // Si vous voulez différencier l'en-tête affiché du nom technique, 
-  // passez-le en paramètre supplémentaire
-  setOdooField(sheetName, columnName, columnName, fieldName);
+function saveColumnMapping(idOnglet, columnName, fieldName) {
+  setOdooField(idOnglet, columnName, columnName, fieldName);
   return { success: true };
 }
 
@@ -41,8 +38,8 @@ function saveColumnMapping(sheetName, columnName, fieldName) {
  * @param {String} sheetName - Nom de l'onglet
  * @return {Object} Dictionnaire {columnName: fieldName}
  */
-function getColumnMappings(sheetName) {
-  return getOdooFields(sheetName);
+function getColumnMappings(idOnglet) {
+  return getOdooFields(idOnglet);
 }
 
 /**
@@ -61,8 +58,9 @@ function applyValidationRow(sheetName, fields) {
   var lastCol = sheet.getLastColumn();
   if (lastCol === 0) return;
   
+  var idOnglet = sheet.getSheetId().toString();
   var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
-  var mappings = getColumnMappings(sheetName);
+  var mappings = getColumnMappings(idOnglet);
   
   // Appliquer le formatage à la ligne 2
   var validationRange = sheet.getRange(2, 1, 1, lastCol);
@@ -93,4 +91,55 @@ function applyValidationRow(sheetName, fields) {
   
   // Figer les 2 premières lignes
   sheet.setFrozenRows(2);
+}
+
+/**
+ * Nettoie les mappings orphelins (onglets supprimés ou colonnes disparues)
+ */
+function cleanupOrphanMappings() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  // 1. Nettoyage des onglets (ODOO_MODELS)
+  var models = readSmartTable('ODOO_MODELS');
+  models.forEach(function(m) {
+    var idOnglet = m['ID Onglet'];
+    if (!idOnglet) return;
+    
+    var sheet = getSheetById(idOnglet);
+    if (!sheet) {
+      // Onglet supprimé -> Nettoyer tout
+      deleteFromSmartTable('ODOO_MODELS', {'ID Onglet': idOnglet});
+      deleteFromSmartTable('ODOO_FIELDS', {'ID Onglet': idOnglet});
+    }
+  });
+
+  // 2. Nettoyage des colonnes (ODOO_FIELDS)
+  var fields = readSmartTable('ODOO_FIELDS');
+  // On regroupe par onglet pour ne pas lire les colonnes 50 fois
+  var fieldsBySheet = {};
+  fields.forEach(function(f) {
+    var id = f['ID Onglet'];
+    if (!fieldsBySheet[id]) fieldsBySheet[id] = [];
+    fieldsBySheet[id].push(f);
+  });
+
+  for (var idOnglet in fieldsBySheet) {
+    var sheet = getSheetById(idOnglet);
+    if (!sheet) continue; // Déjà géré au dessus or something else
+    
+    var currentHeaders = sheet.getRange(1, 1, 1, Math.max(1, sheet.getLastColumn())).getValues()[0];
+    // Nettoyer les espaces et convertir en string pour comparaison
+    currentHeaders = currentHeaders.map(function(h) { return String(h).trim(); });
+
+    fieldsBySheet[idOnglet].forEach(function(f) {
+      var mappedHeader = String(f['Entête']).trim();
+      if (currentHeaders.indexOf(mappedHeader) === -1) {
+        // Colonne n'existe plus
+        deleteFromSmartTable('ODOO_FIELDS', {
+          'ID Onglet': idOnglet,
+          'Entête': f['Entête']
+        });
+      }
+    });
+  }
 }

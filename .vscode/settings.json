@@ -8,6 +8,6 @@
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnSave": false,
     "editor.tabSize": 2
-  }
+  },
+  "postman.settings.dotenv-detection-notification-visibility": false
 }
-

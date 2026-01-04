@@ -139,3 +139,13 @@ function enrichment_populateCountries() {
 function enrichment_formatPhones() {
   return OdooRDD.enrichment_formatPhones();
 }
+
+function enrichment_mergeTabs() {
+  return OdooRDD.enrichment_mergeTabs();
+}
+
+// --- AI Mapping Suggestions ---
+
+function getAiMappingSuggestions(headers, odooFields) {
+  return OdooRDD.getAiMappingSuggestions(headers, odooFields);
+}

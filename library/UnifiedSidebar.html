@@ -12,33 +12,28 @@
             font-size: 14px;
             color: #202124;
             background-color: #fff;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
+            overflow-y: auto;
+            /* Permet le défilement vertical naturel */
+            overflow-x: hidden;
         }
 
         #main-content {
-            flex: 1;
             padding: 24px;
             box-sizing: border-box;
-            overflow-y: auto;
             display: flex;
             flex-direction: column;
         }
 
         #mapping-view {
-            flex: 1;
             display: flex;
             flex-direction: column;
-            overflow: hidden;
         }
 
         #column-mappings {
-            flex: 1;
-            overflow-y: auto;
             margin-top: 16px;
-            padding-right: 4px;
+            padding-top: 16px;
+            border-top: 1px solid #dadce0;
+            /* Trait de séparation sous le modèle Odoo */
         }
 
         /* Vues (cachées par défaut) */
@@ -160,6 +155,15 @@
             background-color: #2d8e47;
         }
 
+        button.ai-btn {
+            background-color: #8e24aa;
+            margin-bottom: 8px;
+        }
+
+        button.ai-btn:hover {
+            background-color: #7b1fa2;
+        }
+
         button.warning {
             background-color: #ea4335;
         }
@@ -182,25 +186,22 @@
 
         .column-row {
             display: flex;
-            gap: 10px;
-            margin-bottom: 10px;
-            align-items: center;
+            flex-direction: column;
+            /* Alignement vertical */
+            gap: 4px;
+            margin-bottom: 16px;
         }
 
         .column-name {
-            flex: 0 0 120px;
             font-weight: 500;
             font-size: 13px;
+            color: #5f6368;
         }
 
         .field-select {
-            flex: 1;
+            width: 100%;
         }
 
-        #column-mappings {
-            flex: 1;
-            overflow-y: auto;
-        }
 
         /* Odoo Console Styles */
         .odoo-console {
@@ -304,6 +305,21 @@
                     <input type="password" id="googleAiKey" placeholder="votre_api_key_gemini" maxlength="100">
                 </div>
 
+                <div class="form-group">
+                    <label for="aiEngineUrl">Moteur d'IA:</label>
+                    <select id="aiEngineUrl">
+                        <option
+                            value="https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent">
+                            Gemini 2.0 Flash</option>
+                        <option
+                            value="https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent">
+                            Gemini 1.5 Flash</option>
+                        <option
+                            value="https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent">
+                            Gemini 1.5 Pro</option>
+                    </select>
+                </div>
+
                 <button type="submit" id="submitBtn">Valider et tester la connexion</button>
             </form>
 
@@ -333,6 +349,7 @@
                 Sélectionnez un modèle pour commencer.
             </div>
 
+            <button id="ai-btn" class="ai-btn" disabled><i class="fa fa-magic"></i> Suggestions IA</button>
             <button id="save-btn" disabled>Sauvegarder le mapping</button>
             <button id="test-btn" disabled>Tester (10 lignes)</button>
 
@@ -428,6 +445,7 @@
             });
             safeAddListener('save-btn', 'click', saveMapping);
             safeAddListener('test-btn', 'click', testMapping);
+            safeAddListener('ai-btn', 'click', loadAiSuggestions);
 
             // Formatage (Global)
             safeAddListener('format-btn', 'click', handleFormatting);
@@ -643,6 +661,9 @@
                 document.getElementById('odooUser').value = data.config.user || '';
                 document.getElementById('odooApiKey').value = data.config.apiKey || '';
                 document.getElementById('googleAiKey').value = data.config.googleAiKey || '';
+                if (data.config.aiEngineUrl) {
+                    document.getElementById('aiEngineUrl').value = data.config.aiEngineUrl;
+                }
 
                 if (!data.config.url || !data.config.database) {
                     document.getElementById('config-info').style.display = 'block';
@@ -678,7 +699,8 @@
                 database: document.getElementById('odooDatabase').value.trim(),
                 user: document.getElementById('odooUser').value.trim(),
                 apiKey: document.getElementById('odooApiKey').value.trim(),
-                googleAiKey: document.getElementById('googleAiKey').value.trim()
+                googleAiKey: document.getElementById('googleAiKey').value.trim(),
+                aiEngineUrl: document.getElementById('aiEngineUrl').value
             };
 
             google.script.run
@@ -796,6 +818,7 @@
                     hideStatus();
                     document.getElementById('save-btn').disabled = false;
                     document.getElementById('test-btn').disabled = false;
+                    document.getElementById('ai-btn').disabled = false;
                 })
                 .withFailureHandler(function (err) {
                     showError('Erreur chargement champs: ' + err.message);
@@ -805,6 +828,97 @@
             if (!forceRefresh) {
                 google.script.run.getModelFields(modelName, true);
             }
+        }
+
+        function loadAiSuggestions() {
+            console.log('[CLIENT] ========== loadAiSuggestions START ==========');
+            console.log('[CLIENT] Button clicked');
+
+            // Log current state
+            console.log('[CLIENT] State inspection:');
+            console.log('[CLIENT] - sheetName:', state.sheetName);
+            console.log('[CLIENT] - currentModel:', state.currentModel);
+            console.log('[CLIENT] - columns:', state.columns);
+            console.log('[CLIENT] - columns length:', state.columns ? state.columns.length : 'NULL');
+            console.log('[CLIENT] - fields:', state.fields);
+            console.log('[CLIENT] - fields length:', state.fields ? state.fields.length : 'NULL');
+
+            // Validation détaillée
+            if (!state.currentModel) {
+                console.error('[CLIENT] ABORT: No model selected');
+                showError('Veuillez d\'abord sélectionner un modèle Odoo.');
+                return;
+            }
+
+            if (!state.fields || state.fields.length === 0) {
+                console.error('[CLIENT] ABORT: No fields loaded');
+                console.log('[CLIENT] Attempting to reload fields...');
+                showError('Les champs Odoo ne sont pas chargés. Rechargement en cours...');
+                loadModelFields(state.currentModel, false);
+                return;
+            }
+
+            if (!state.columns || state.columns.length === 0) {
+                console.error('[CLIENT] ABORT: No columns found in sheet');
+                showError('Aucune colonne trouvée dans l\'onglet sélectionné.');
+                return;
+            }
+
+            console.log('[CLIENT] Validation passed');
+            console.log('[CLIENT] Will send to server:');
+            console.log('[CLIENT] - Columns:', JSON.stringify(state.columns));
+            console.log('[CLIENT] - Fields count:', state.fields.length);
+
+            showStatus('Analyse IA en cours...', 'info');
+            document.getElementById('ai-btn').disabled = true;
+
+            console.log('[CLIENT] Calling server getAiMappingSuggestions...');
+            var startTime = new Date().getTime();
+
+            google.script.run
+                .withSuccessHandler(function (suggestions) {
+                    var duration = (new Date().getTime() - startTime) / 1000;
+                    console.log('[CLIENT] ========== SUCCESS after ' + duration + 's ==========');
+                    console.log('[CLIENT] Suggestions received:', suggestions);
+
+                    hideStatus();
+                    document.getElementById('ai-btn').disabled = false;
+
+                    if (!suggestions || Object.keys(suggestions).length === 0) {
+                        console.log('[CLIENT] No suggestions found');
+                        showError('Aucune suggestion pertinente trouvée.');
+                        return;
+                    }
+
+                    // Appliquer les suggestions aux champs non mappés
+                    var selects = document.querySelectorAll('.field-select');
+                    var count = 0;
+                    selects.forEach(function (select) {
+                        var colName = select.getAttribute('data-column');
+                        if (suggestions[colName] && !select.value) {
+                            select.value = suggestions[colName];
+                            count++;
+                        }
+                    });
+
+                    console.log('[CLIENT] Applied ' + count + ' suggestions');
+                    showStatus(count + ' suggestions appliquées.', 'success');
+                    setTimeout(hideStatus, 3000);
+                })
+                .withFailureHandler(function (err) {
+                    var duration = (new Date().getTime() - startTime) / 1000;
+                    console.error('[CLIENT] ========== ERROR after ' + duration + 's ==========');
+                    console.error('[CLIENT] Error object:', err);
+                    console.error('[CLIENT] Error message:', err.message);
+                    console.error('[CLIENT] Error stack:', err.stack);
+
+                    hideStatus();
+                    showError('Erreur IA: ' + (err.message || 'Erreur inconnue'));
+                    document.getElementById('ai-btn').disabled = false;
+                })
+                .getAiMappingSuggestions(state.columns, state.fields);
+
+            console.log('[CLIENT] Request sent to server, waiting for response...');
         }
 
         function renderColumnMappings() {
@@ -836,8 +950,20 @@
                 select.appendChild(empty);
 
                 var selectedFieldId = state.existingMappings[colName];
-                if (!selectedFieldId) {
+                // Si la valeur est undefined (pas encore mappé), on cherche un match.
+                // Si la valeur est "" (sauvegardé comme exclusion), on la garde.
+                if (selectedFieldId === undefined || selectedFieldId === null) {
                     selectedFieldId = findBestMatch(colName, state.fields);
+                }
+
+                // Si on a un mapping existant mais qu'il n'est pas dans la liste des champs (ex: erreur Odoo)
+                // On l'ajoute quand même pour que l'utilisateur voit l'association actuelle
+                if (selectedFieldId && !state.fields.find(f => f.id === selectedFieldId)) {
+                    var opt = document.createElement('option');
+                    opt.value = selectedFieldId;
+                    opt.textContent = selectedFieldId + ' (Actuel)';
+                    opt.selected = true;
+                    select.appendChild(opt);
                 }
 
                 state.fields.forEach(function (f) {

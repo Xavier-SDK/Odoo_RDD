@@ -96,6 +96,7 @@ function template_ensureParamsSheet() {
     paramsSheet.getRange('A4').setValue('Odoo User');
     paramsSheet.getRange('A5').setValue('Odoo API Key');
     paramsSheet.getRange('A6').setValue('Google AI API Key');
+    paramsSheet.getRange('A7').setValue('AI Engine URL');
     paramsSheet.getRange('A1:B1').setFontWeight('bold');
     
     // Headers for ODOO_MODELS table (D1:E1)
@@ -140,13 +141,15 @@ function template_getOdooConfig() {
     var user = getParameter('Odoo User') || '';
     var apiKey = getParameter('Odoo API Key') || '';
     var googleAiKey = getParameter('Google AI API Key') || '';
+    var aiEngineUrl = getParameter('AI Engine URL') || 'https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent';
     
     return {
       url: normalizeOdooUrl(url),
       database: database,
       user: user,
       apiKey: apiKey,
-      googleAiKey: googleAiKey ? googleAiKey.trim() : ''
+      googleAiKey: googleAiKey ? googleAiKey.trim() : '',
+      aiEngineUrl: aiEngineUrl
     };
   } catch (e) {
     Logger.log('Erreur dans template_getOdooConfig: ' + e.toString());
@@ -169,6 +172,7 @@ function template_saveConfig(config) {
     setParameter('Odoo User', config.user);
     setParameter('Odoo API Key', config.apiKey);
     setParameter('Google AI API Key', config.googleAiKey || '');
+    setParameter('AI Engine URL', config.aiEngineUrl);
     
     var testResult = template_testOdooConnection(config);
     var errorFields = template_identifyErrorFields(config, testResult);
@@ -371,11 +375,11 @@ function template_createOdooMenu(statusEmoji) {
     .addItem('Autoriser l\'IA', 'activateAIAuthorizationFromMenu')
     .addSeparator()
     .addSubMenu(ui.createMenu('Traitement des données')
-      .addItem('💡 Mapping', 'showContextualMappingSidebar')
-      .addSeparator()
+      .addItem('Mapping', 'showContextualMappingSidebar')
       .addItem('Dédoublonnage', 'showPlaceholder')
       .addItem('Formatage', 'showFormattingSidebar')
       .addItem('Enrichissement', 'showEnrichmentSidebar')
+      .addItem('Fusionner', 'enrichment_mergeTabs')
       .addItem('Validation', 'showPlaceholder'))
     .addSubMenu(ui.createMenu('Odoo Sync')
       .addItem('Echantillon onglet', 'showPlaceholder')
@@ -668,7 +672,9 @@ function enrichment_populateStates() {
         return {index: i, street: a.street, street2: a.street2, zip: a.zip, city: a.city, country: a.country}; 
       }));
       
-      var url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=" + apiKey;
+      var baseUrl = getParameter('AI Engine URL');
+      var url = baseUrl + "?key=" + apiKey;
+
       var payload = {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: { temperature: 0.1, maxOutputTokens: 8000 }
@@ -866,7 +872,9 @@ function enrichment_populateCountries() {
         return {index: i, street: a.street, street2: a.street2, zip: a.zip, city: a.city}; 
       }));
       
-      var url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=" + apiKey;
+      var baseUrl = getParameter('AI Engine URL');
+      var url = baseUrl + "?key=" + apiKey;
+
       var payload = {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: { temperature: 0.1, maxOutputTokens: 8000 }
@@ -1042,6 +1050,32 @@ function enrichment_formatPhones() {
         
         if (!phone || phone.startsWith('#')) continue;
         
+        // 1. Contrôle des lettres : si présent, on supprime le contenu
+        if (/[a-zA-Z]/.test(phone)) {
+          phoneValues[i][0] = "";
+          totalFormatted++;
+          colUpdated = true;
+          continue;
+        }
+
+        // 2. Nettoyage pour compter les chiffres
+        var cleanNum = phone.replace(/\D/g, '');
+        
+        // 3. Contrôle du nombre de chiffres
+        if (cleanNum.length === 4) {
+          // Si 4 chiffres, on ne touche à rien (probablement un poste interne)
+          continue;
+        }
+        
+        if (cleanNum.length < 4 || (cleanNum.length >= 5 && cleanNum.length <= 8)) {
+          // Si mal formé (moins de 4 ou entre 5 et 8), on supprime
+          phoneValues[i][0] = "";
+          totalFormatted++;
+          colUpdated = true;
+          continue;
+        }
+        
+        // 4. Formatage standard pour les numéros de 9 chiffres ou plus
         var country = countryValues ? countryValues[i][0].toString().trim() : 'France';
         
         // Trouver l'indicatif du pays
@@ -1053,10 +1087,6 @@ function enrichment_formatPhones() {
         if (countryData) {
           countryCode = countryData['Indice'] || (isNaN(parseInt(countryData['Code du pays'])) ? '33' : countryData['Code du pays']);
         }
-        
-        // Nettoyage des caractères non-numériques sauf le +
-        var tempPhone = phone.replace(/[^\d+]/g, '');
-        var cleanNum = tempPhone.replace(/\D/g, '');
         
         // Cas CC + 0 + reste (ex: 320487...)
         if (cleanNum.indexOf(countryCode) === 0 && cleanNum.charAt(countryCode.length) === '0' && cleanNum.length > countryCode.length + 1) {
@@ -1151,5 +1181,166 @@ function _extractJsonArray(text) {
   }
   
   return null;
+}
+
+/**
+ * Fusionne les onglets associés au même modèle Odoo
+ */
+function enrichment_mergeTabs() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ui = SpreadsheetApp.getUi();
+  
+  try {
+    // 1. Charger les associations Modèles Odoo
+    var modelMappings = readSmartTable('ODOO_MODELS');
+    if (!modelMappings || modelMappings.length === 0) {
+      ui.alert('Information', "Il n'existe pas au moins 2 onglets associés à un même modèle Odoo.", ui.ButtonSet.OK);
+      return;
+    }
+    
+    // 2. Grouper les onglets par modèle
+    var groups = {};
+    modelMappings.forEach(function(m) {
+      var model = m['Modèle Odoo'];
+      var idOnglet = m['ID Onglet'];
+      if (!model || !idOnglet) return;
+      
+      var sheet = getSheetById(idOnglet);
+      if (sheet) {
+        if (!groups[model]) groups[model] = [];
+        groups[model].push({ id: idOnglet, name: sheet.getName(), sheet: sheet });
+      }
+    });
+    
+    // 3. Filtrer pour ne garder que ceux à fusionner (>= 2 onglets)
+    var groupsToMerge = [];
+    for (var model in groups) {
+      if (groups[model].length >= 2) {
+        groupsToMerge.push({ model: model, sheets: groups[model] });
+      }
+    }
+    
+    if (groupsToMerge.length === 0) {
+      ui.alert('Information', "Il n'existe pas au moins 2 onglets associés à un même modèle Odoo.", ui.ButtonSet.OK);
+      return;
+    }
+    
+    var totalGroups = groupsToMerge.length;
+    var totalSheetsToMerge = 0;
+    groupsToMerge.forEach(function(g) { totalSheetsToMerge += (g.sheets.length - 1); });
+    
+    var currentMergedCount = 0;
+    Logger.log('Starting merge for ' + totalGroups + ' models, total source sheets: ' + totalSheetsToMerge);
+    
+    // 4. Traitement par lot
+    for (var g = 0; g < groupsToMerge.length; g++) {
+      var group = groupsToMerge[g];
+      var target = group.sheets[0];
+      var targetSheet = target.sheet;
+      
+      Logger.log('Merging group for model ' + group.model + ' into ' + target.name);
+      
+      for (var s = 1; s < group.sheets.length; s++) {
+        var source = group.sheets[s];
+        var sourceSheet = source.sheet;
+        if (!sourceSheet) continue;
+        
+        var progress = Math.round((currentMergedCount / totalSheetsToMerge) * 100);
+        _updateProgress(progress, "Fusion de " + source.name + " dans " + target.name);
+        
+        _mergeTwoSheets(targetSheet, sourceSheet);
+        
+        // Nettoyage Paramètres - Utilise l'ID
+        deleteFromSmartTable('ODOO_MODELS', {'ID Onglet': source.id});
+        deleteFromSmartTable('ODOO_FIELDS', {'ID Onglet': source.id});
+        
+        // Suppression Onglet
+        ss.deleteSheet(sourceSheet);
+        currentMergedCount++;
+      }
+    }
+    
+    _updateProgress(100, "Terminé");
+    ui.alert('Succès', "Fusion terminée. " + currentMergedCount + " onglet(s) ont été fusionnés avec succès.", ui.ButtonSet.OK);
+    
+  } catch (e) {
+    Logger.log('Error in enrichment_mergeTabs: ' + e.toString());
+    _updateProgress(0, "Erreur");
+    ui.alert('Erreur', "Une erreur est survenue lors de la fusion : " + e.toString(), ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * Fusionne sourceSheet dans targetSheet en respectant les mappings Odoo
+ * @private
+ */
+function _mergeTwoSheets(targetSheet, sourceSheet) {
+  var targetId = targetSheet.getSheetId().toString();
+  var sourceId = sourceSheet.getSheetId().toString();
+  var targetName = targetSheet.getName();
+  
+  var targetLastCol = targetSheet.getLastColumn();
+  var targetHeaders = targetLastCol > 0 ? targetSheet.getRange(1, 1, 1, targetLastCol).getValues()[0] : [];
+  
+  var sourceLastCol = sourceSheet.getLastColumn();
+  var sourceHeaders = sourceLastCol > 0 ? sourceSheet.getRange(1, 1, 1, sourceLastCol).getValues()[0] : [];
+  
+  var targetMappings = getOdooFields(targetId); // Utilise l'ID
+  var sourceMappings = getOdooFields(sourceId); // Utilise l'ID
+  
+  var sourceLastRow = sourceSheet.getLastRow();
+  if (sourceLastRow < 2) return; 
+  
+  var targetLastRow = targetSheet.getLastRow();
+  var startRowAtTarget = targetLastRow + 1;
+  
+  // 1. Préparer les index cibles pour matching rapide
+  var targetFieldToCol = {}; // fieldId -> 1-based index
+  var targetHeaderToCol = {}; // headerLowerCase -> 1-based index
+  
+  targetHeaders.forEach(function(h, i) {
+    if (!h) return;
+    var headerStr = h.toString();
+    var fieldId = targetMappings[headerStr];
+    if (fieldId) targetFieldToCol[fieldId] = i + 1;
+    targetHeaderToCol[headerStr.toLowerCase()] = i + 1;
+  });
+  
+  // 2. Boucler sur les colonnes de la source
+  for (var srcIdx = 0; srcIdx < sourceHeaders.length; srcIdx++) {
+    var header = sourceHeaders[srcIdx];
+    if (!header || header === "") continue;
+    
+    var headerStr = header.toString();
+    var fieldId = sourceMappings[headerStr];
+    var targetCol = null;
+    
+    // LOGIQUE DE MATCHING
+    // a. Match par Field ID Odoo (priorité)
+    if (fieldId && targetFieldToCol[fieldId]) {
+      targetCol = targetFieldToCol[fieldId];
+    } 
+    // b. Match par Nom d'entête (insensible à la casse)
+    else if (targetHeaderToCol[headerStr.toLowerCase()]) {
+      targetCol = targetHeaderToCol[headerStr.toLowerCase()];
+    }
+    // c. Sinon, créer une nouvelle colonne dans l'onglet cible
+    else {
+      targetCol = targetSheet.getLastColumn() + 1;
+      targetSheet.getRange(1, targetCol).setValue(headerStr);
+      targetHeaderToCol[headerStr.toLowerCase()] = targetCol;
+      
+      // Si la colonne source avait un mapping, on le transfère vers la nouvelle colonne cible
+      if (fieldId) {
+        var letter = getColumnLetter(targetCol);
+        setOdooField(targetId, letter, headerStr, fieldId); // Utilise l'ID
+        targetFieldToCol[fieldId] = targetCol;
+      }
+    }
+    
+    // 3. Déplacement des données d'un bloc (ligne 2 à la fin)
+    var sourceData = sourceSheet.getRange(2, srcIdx + 1, sourceLastRow - 1, 1).getValues();
+    targetSheet.getRange(startRowAtTarget, targetCol, sourceData.length, 1).setValues(sourceData);
+  }
 }
 
