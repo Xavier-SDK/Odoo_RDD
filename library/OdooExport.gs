@@ -1,292 +1,12 @@
 /**
- * OdooSync - Module de gestion de la synchronisation avec Odoo (Import/Export)
+ * OdooExport - Module de gestion de l'export vers Odoo
  */
 
 /**
- * Prépare l'onglet actif pour la synchronisation avec Odoo (Export ou Import)
- * @param {String} mode - 'export' ou 'import'
- */
-function prepareForSync(mode) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getActiveSheet();
-  var sheetId = sheet.getSheetId().toString();
-  var sheetName = sheet.getName();
-  
-  // 1. Vérifier qu'un modèle est mappé
-  var modelName = getTabMapping(sheetId);
-  if (!modelName) {
-    return {
-      success: false,
-      message: "Aucun modèle Odoo n'est associé à cet onglet. Veuillez d'abord faire le mapping."
-    };
-  }
-  
-  // 2. Gestion de la colonne "ID Externe"
-  var headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
-  var idColumnIndex = headers.indexOf("ID Externe");
-  
-  if (idColumnIndex === -1) {
-    sheet.insertColumnBefore(1);
-    sheet.getRange(1, 1).setValue("ID Externe").setFontWeight("bold").setHorizontalAlignment("center");
-    idColumnIndex = 0;
-    headers = ["ID Externe"].concat(headers);
-  }
-  
-  // 3. Assurer le mapping de "ID Externe"
-  saveColumnMapping(sheetId, "ID Externe", "xml_id"); 
-  
-  // 4. Synchroniser les lettres de colonnes dans Paramètres
-  try {
-    syncColumnLetters(sheetId, headers);
-  } catch(e) {
-    Logger.log("Erreur syncColumnLetters: " + e.message);
-  }
-
-  // 5. Retourner les infos selon le mode
-  var result = {
-    success: true,
-    sheetName: sheetName,
-    modelName: modelName
-  };
-  
-  if (mode === 'export') {
-    result.totalRows = sheet.getLastRow() - 1; // Sans l'entête
-  } else if (mode === 'import') {
-    // Pour l'import, on ajoute aussi le compteur Odoo et les lignes actuelles
-    result.currentRows = sheet.getLastRow() - 1;
-    result.totalRecords = 1000; // Placeholder - sera calculé par processImportBatch
-  }
-  
-  return result;
-}
-
-function prepareForImport() {
-  return prepareForSync('import');
-}
-
-
-/**
- * Traite un lot de données pour l'import
- */
-function processImportBatch(sheetName, offset, batchSize) {
-  try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName(sheetName);
-    var sheetId = sheet.getSheetId().toString();
-    var model = getTabMapping(sheetId);
-    
-    var config = template_getOdooConfig();
-    if (!config.uid) {
-      var authObj = testConnection(config);
-      if (authObj.success && authObj.uid) {
-        config.uid = authObj.uid;
-      } else {
-        throw new Error("Impossible de se connecter à Odoo");
-      }
-    }
-    
-    var mappings = getColumnMappings(sheetId);
-    var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    var idColIndex = headers.indexOf("ID Externe");
-    
-    if (idColIndex === -1) throw new Error("Colonne 'ID Externe' introuvable");
-    
-    var results = {
-      importedCount: 0,
-      skippedCount: 0,
-      hasMore: false,
-      logs: [],
-      stop: false
-    };
-    
-    // Prepare field list
-    var fieldsList = ['id'];
-    var reverseMapping = {};
-    
-    for (var headerName in mappings) {
-      var odooField = mappings[headerName];
-      if (odooField && odooField !== 'xml_id' && odooField !== '') {
-        if (fieldsList.indexOf(odooField) === -1) {
-          fieldsList.push(odooField);
-        }
-        reverseMapping[odooField] = headerName;
-      }
-    }
-    
-    results.logs.push('🔍 Import offset=' + offset + ', champs=' + fieldsList.length);
-    
-    // Fetch records
-    var odooRecords = odooSearchRead(config, model, [], fieldsList, offset, batchSize);
-    
-    if (!odooRecords || odooRecords.length === 0) {
-      results.logs.push('✅ Fin des enregistrements');
-      results.hasMore = false;
-      return results;
-    }
-    
-    results.logs.push('📥 ' + odooRecords.length + ' enregistrements récupérés');
-    results.hasMore = (odooRecords.length === batchSize);
-    
-    // Get xml_ids via search on ir.model.data
-    var recordIds = odooRecords.map(function(r) { return r.id; });
-    var xmlIdMap = {};
-    
-    try {
-      var xmlIdResult = odooSearchRead(config, 'ir.model.data', 
-        [['model', '=', model], ['res_id', 'in', recordIds]], 
-        ['res_id', 'module', 'name']
-      );
-      xmlIdResult.forEach(function(r) {
-        xmlIdMap[r.res_id] = r.module + '.' + r.name;
-      });
-      results.logs.push('🔑 ' + Object.keys(xmlIdMap).length + ' xml_ids trouvés');
-    } catch(e) {
-      results.logs.push('⚠️ Pas de xml_ids: ' + e.message);
-    }
-    
-    // Read existing xml_ids
-    var existingXmlIds = {};
-    var lastRow = sheet.getLastRow();
-    if (lastRow > 1) {
-      var existingIds = sheet.getRange(2, idColIndex + 1, lastRow - 1, 1).getValues();
-      existingIds.forEach(function(row) {
-        var xmlId = row[0];
-        if (xmlId && xmlId.toString().trim() !== '') {
-          existingXmlIds[xmlId.toString().trim()] = true;
-        }
-      });
-    }
-    
-    // Filter
-    var recordsToImport = [];
-    odooRecords.forEach(function(record) {
-      var xmlId = xmlIdMap[record.id];
-      if (!xmlId || !existingXmlIds[xmlId]) {
-        recordsToImport.push(record);
-      }
-    });
-    
-    results.skippedCount = odooRecords.length - recordsToImport.length;
-    results.logs.push('➡️ ' + recordsToImport.length + ' nouveaux, ' + results.skippedCount + ' ignorés');
-    
-    if (recordsToImport.length === 0) {
-      return results;
-    }
-    
-    // Convert to rows
-    var newRows = [];
-    recordsToImport.forEach(function(record) {
-      var rowData = [];
-      for (var h = 0; h < headers.length; h++) {
-        var headerName = headers[h];
-        if (headerName === "ID Externe") {
-          rowData.push(xmlIdMap[record.id] || '');
-        } else {
-          var odooField = mappings[headerName];
-          if (odooField && record[odooField] !== undefined) {
-            var value = record[odooField];
-            // Handle Many2one [id, name]
-            if (Array.isArray(value) && value.length === 2) {
-              value = value[1];
-            }
-            rowData.push(value || '');
-          } else {
-            rowData.push('');
-          }
-        }
-      }
-      newRows.push(rowData);
-    });
-    
-    // Insert
-    if (newRows.length > 0) {
-      var lastRow = sheet.getLastRow();
-      sheet.insertRowsAfter(lastRow, newRows.length);
-      sheet.getRange(lastRow + 1, 1, newRows.length, headers.length).setValues(newRows);
-      results.importedCount = newRows.length;
-      results.logs.push('✅ ' + newRows.length + ' lignes ajoutées');
-    }
-    
-    return results;
-    
-  } catch (e) {
-    return {
-      importedCount: 0,
-      skippedCount: 0,
-      hasMore: false,
-      logs: ['❌ ' + (typeof condenseOdooError === 'function' ? condenseOdooError(e.message) : e.message)],
-      stop: true,
-      error: (typeof condenseOdooError === 'function' ? condenseOdooError(e.message) : e.message)
-    };
-  }
-}
-
-/**
- * Résout une liste de noms en IDs pour un modèle donné
- */
-function resolveNameListToIds(config, model, names, cache) {
-  var ids = [];
-  var toSearch = [];
-  
-  cache[model] = cache[model] || {};
-  
-  // 1. Checker le cache (insensible à la casse)
-  names.forEach(function(name) {
-    var key = name.toString().trim();
-    if (!key) return;
-    
-    var cachedId = cache[model][key] || cache[model][key.toLowerCase()];
-    if (cachedId) {
-      ids.push(cachedId);
-    } else {
-      toSearch.push(key);
-    }
-  });
-  
-  if (toSearch.length === 0) return ids;
-  
-  // 2. Chercher dans Odoo
-  try {
-    var domain = [['name', 'in', toSearch]];
-    if (model === 'res.users') {
-      domain = ['|', ['name', 'in', toSearch], ['login', 'in', toSearch]];
-    }
-    
-    var results = odooSearchRead(config, model, domain, ['id', 'name']);
-    results.forEach(function(r) {
-      cache[model][r.name] = r.id;
-      cache[model][r.name.toLowerCase()] = r.id;
-      if (r.login) cache[model][r.login.toLowerCase()] = r.id;
-      
-      toSearch.forEach(function(ts) {
-        if (ts.toLowerCase() === r.name.toLowerCase() || (r.login && ts.toLowerCase() === r.login.toLowerCase())) {
-          ids.push(r.id);
-        }
-      });
-    });
-  } catch(e) {
-    Logger.log("Erreur recherche IDs pour " + model + ": " + e.message);
-  }
-  
-  return ids.filter(function(item, pos) { return ids.indexOf(item) == pos; });
-}
-
-function handleMissingRelation(config, model, names, headerName) {
-  // OBSOLETE
-}
-
-/**
- * Wrapper pour l'export
+ * Prépare l'onglet actif pour l'export vers Odoo
  */
 function prepareForExport() {
   return prepareForSync('export');
-}
-
-/**
- * Wrapper pour l'import
- */
-function prepareForImport() {
-  return prepareForSync('import');
 }
 
 /**
@@ -492,285 +212,6 @@ function processExportBatch(sheetName, rowsIndices) {
 }
 
 /**
- * Condense les messages d'erreur Odoo pour l'utilisateur
- */
-function condenseOdooError(msg) {
-    if (!msg) return "Erreur inconnue";
-    
-    // Remove "Erreur Odoo: " prefix if present
-    if (msg.indexOf('Erreur Odoo: ') === 0) {
-        msg = msg.substring(13); // "Erreur Odoo: ".length = 13
-    }
-    
-    // Si c'est déjà court et sans traceback
-    if (msg.length < 150 && msg.indexOf('Traceback') === -1 && msg.indexOf('File "') === -1) {
-        return cleanupErrorMessage(msg);
-    }
-
-    // Extraction des erreurs Python connues
-    // ValidationError, ValueError, etc.
-    var errorPatterns = [
-        // ValidationError avec détails
-        /ValidationError:\s*'([^']+)'/i,
-        /ValidationError:\s*"([^"]+)"/i,
-        /ValidationError:\s*(.+?)(?:\n|$)/i,
-        
-        // ValueError
-        /ValueError:\s*(.+?)(?:\n|$)/i,
-        
-        // Required field
-        /required field.*?'([^']+)'/i,
-        /missing required field.*?'([^']+)'/i,
-        
-        // Wrong value
-        /Wrong value for.*?'([^']+)'.*?'([^']+)'/i,
-        
-        // Generic error with quotes
-        /Error:\s*'([^']+)'/i,
-        /Error:\s*"([^"]+)"/i
-    ];
-    
-    for (var i = 0; i < errorPatterns.length; i++) {
-        var match = msg.match(errorPatterns[i]);
-        if (match) {
-            var extracted = match[1] || match[0];
-            // Si on a capturé un deuxième groupe (ex: Wrong value)
-            if (match[2]) {
-                extracted = extracted + ": " + match[2];
-            }
-            return cleanupErrorMessage(extracted);
-        }
-    }
-    
-    // Cas spécifiques textuels
-    if (msg.indexOf('singleton') !== -1 && msg.indexOf('Expected singleton') !== -1) {
-        return "Erreur de données: valeur unique attendue (vérifiez le format des champs relationnels)";
-    }
-    
-    if (msg.indexOf('Missing required value') !== -1 || msg.indexOf('field is required') !== -1) {
-        return "Champ requis manquant - vérifiez que tous les champs obligatoires sont remplis";
-    }
-    
-    // Fallback: prendre la première ligne non-vide qui n'est pas du traceback
-    var lines = msg.split('\n');
-    for (var j = 0; j < lines.length; j++) {
-        var line = lines[j].trim();
-        if (line && 
-            line.indexOf('Traceback') === -1 && 
-            line.indexOf('File "') === -1 &&
-            line.indexOf('line ') === -1 &&
-            line.length > 10) {
-            return cleanupErrorMessage(line.substring(0, 200));
-        }
-    }
-    
-    // Dernière solution: tronquer
-    return cleanupErrorMessage(msg.substring(0, 150) + "...");
-}
-
-/**
- * Nettoie le message d'erreur pour l'affichage
- */
-function cleanupErrorMessage(msg) {
-    // Supprimer les échappements HTML
-    msg = msg.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-    // Supprimer les doubles espaces
-    msg = msg.replace(/\s+/g, ' ').trim();
-    return msg;
-}
-
-function createXmlId(config, model, resId, xmlId) {
-    // Créer l'entrée dans ir.model.data
-    // Module: 'odoo_rdd_export'
-    // Name: xmlId
-    
-    // Checker si existe déjà pour update
-    var payload = {
-        'name': xmlId,
-        'module': 'odoo_rdd_export',
-        'model': model,
-        'res_id': resId,
-        'noupdate': false
-    };
-    
-    // On essaie de créer, si contrainte d'unicité -> search/write (ou juste write si on sait)
-    // Le plus simple: searchCount ou try/catch
-    
-    // Mais on a pas de fonction générique 'create_or_update_xmlid' dans l'API Odoo standard simple
-    // On fait simple: create. Si erreur, on ignore (ça veut dire qu'il existe ?)
-    
-    try {
-        odooCreate(config, 'ir.model.data', payload);
-    } catch(e) {
-        // Probablement duplicate key si on réutilise un ID.
-        // Si on veut être propre on ferait un search avant.
-        Logger.log("Erreur création xml_id (peut-être existant): " + e.message);
-    }
-}
-
-//================================================================================
-// IMPORT FROM ODOO
-//================================================================================
-
-// Note: prepareForImport is now a wrapper around prepareForSync (defined above)
-
-/**
- * Traite un lot de données pour l'import
- */
-function processImportBatch(sheetName, offset, batchSize) {
-  try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName(sheetName);
-    var sheetId = sheet.getSheetId().toString();
-    var model = getTabMapping(sheetId);
-    
-    var config = template_getOdooConfig();
-    if (!config.uid) {
-      var authObj = testConnection(config);
-      if (authObj.success && authObj.uid) {
-        config.uid = authObj.uid;
-      } else {
-        throw new Error("Impossible de se connecter à Odoo");
-      }
-    }
-    
-    var mappings = getColumnMappings(sheetId);
-    var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    var idColIndex = headers.indexOf("ID Externe");
-    
-    if (idColIndex === -1) throw new Error("Colonne 'ID Externe' introuvable");
-    
-    var results = {
-      importedCount: 0,
-      skippedCount: 0,
-      hasMore: false,
-      logs: [],
-      stop: false
-    };
-    
-    // Prepare field list
-    var fieldsList = ['id'];
-    var reverseMapping = {};
-    
-    for (var headerName in mappings) {
-      var odooField = mappings[headerName];
-      if (odooField && odooField !== 'xml_id' && odooField !== '') {
-        if (fieldsList.indexOf(odooField) === -1) {
-          fieldsList.push(odooField);
-        }
-        reverseMapping[odooField] = headerName;
-      }
-    }
-    
-    results.logs.push('🔍 Import offset=' + offset + ', champs=' + fieldsList.length);
-    
-    // Fetch records
-    var odooRecords = odooSearchRead(config, model, [], fieldsList, offset, batchSize);
-    
-    if (!odooRecords || odooRecords.length === 0) {
-      results.logs.push('✅ Fin des enregistrements');
-      results.hasMore = false;
-      return results;
-    }
-    
-    results.logs.push('📥 ' + odooRecords.length + ' enregistrements récupérés');
-    results.hasMore = (odooRecords.length === batchSize);
-    
-    // Get xml_ids via search on ir.model.data
-    var recordIds = odooRecords.map(function(r) { return r.id; });
-    var xmlIdMap = {};
-    
-    try {
-      var xmlIdResult = odooSearchRead(config, 'ir.model.data', 
-        [['model', '=', model], ['res_id', 'in', recordIds]], 
-        ['res_id', 'module', 'name']
-      );
-      xmlIdResult.forEach(function(r) {
-        xmlIdMap[r.res_id] = r.module + '.' + r.name;
-      });
-      results.logs.push('🔑 ' + Object.keys(xmlIdMap).length + ' xml_ids trouvés');
-    } catch(e) {
-      results.logs.push('⚠️ Pas de xml_ids: ' + e.message);
-    }
-    
-    // Read existing xml_ids
-    var existingXmlIds = {};
-    var lastRow = sheet.getLastRow();
-    if (lastRow > 1) {
-      var existingIds = sheet.getRange(2, idColIndex + 1, lastRow - 1, 1).getValues();
-      existingIds.forEach(function(row) {
-        var xmlId = row[0];
-        if (xmlId && xmlId.toString().trim() !== '') {
-          existingXmlIds[xmlId.toString().trim()] = true;
-        }
-      });
-    }
-    
-    // Filter
-    var recordsToImport = [];
-    odooRecords.forEach(function(record) {
-      var xmlId = xmlIdMap[record.id];
-      if (!xmlId || !existingXmlIds[xmlId]) {
-        recordsToImport.push(record);
-      }
-    });
-    
-    results.skippedCount = odooRecords.length - recordsToImport.length;
-    results.logs.push('➡️ ' + recordsToImport.length + ' nouveaux, ' + results.skippedCount + ' ignorés');
-    
-    if (recordsToImport.length === 0) {
-      return results;
-    }
-    
-    // Convert to rows
-    var newRows = [];
-    recordsToImport.forEach(function(record) {
-      var rowData = [];
-      for (var h = 0; h < headers.length; h++) {
-        var headerName = headers[h];
-        if (headerName === "ID Externe") {
-          rowData.push(xmlIdMap[record.id] || '');
-        } else {
-          var odooField = mappings[headerName];
-          if (odooField && record[odooField] !== undefined) {
-            var value = record[odooField];
-            // Handle Many2one [id, name]
-            if (Array.isArray(value) && value.length === 2) {
-              value = value[1];
-            }
-            rowData.push(value || '');
-          } else {
-            rowData.push('');
-          }
-        }
-      }
-      newRows.push(rowData);
-    });
-    
-    // Insert
-    if (newRows.length > 0) {
-      var lastRow = sheet.getLastRow();
-      sheet.insertRowsAfter(lastRow, newRows.length);
-      sheet.getRange(lastRow + 1, 1, newRows.length, headers.length).setValues(newRows);
-      results.importedCount = newRows.length;
-      results.logs.push('✅ ' + newRows.length + ' lignes ajoutées');
-    }
-    
-    return results;
-    
-  } catch (e) {
-    return {
-      importedCount: 0,
-      skippedCount: 0,
-      hasMore: false,
-      logs: ['❌ ' + condenseOdooError(e.message)],
-      stop: true,
-      error: condenseOdooError(e.message)
-    };
-  }
-}
-
-/**
  * Résout intelligemment les valeurs des champs relationnels (noms -> IDs)
  */
 function resolveRelationalValues(config, record, fieldMeta, cache, fieldToHeader) {
@@ -823,56 +264,6 @@ function resolveRelationalValues(config, record, fieldMeta, cache, fieldToHeader
       Logger.log("Erreur résolution relation " + fieldName + ": " + e.message);
     }
   }
-}
-
-/**
- * Résout une liste de noms en IDs pour un modèle donné
- */
-function resolveNameListToIds(config, model, names, cache) {
-  var ids = [];
-  var toSearch = [];
-  
-  cache[model] = cache[model] || {};
-  
-  // 1. Checker le cache (insensible à la casse)
-  names.forEach(function(name) {
-    var key = name.toString().trim();
-    if (!key) return;
-    
-    var cachedId = cache[model][key] || cache[model][key.toLowerCase()];
-    if (cachedId) {
-      ids.push(cachedId);
-    } else {
-      toSearch.push(key);
-    }
-  });
-  
-  if (toSearch.length === 0) return ids;
-  
-  // 2. Chercher dans Odoo
-  try {
-    var domain = [['name', 'in', toSearch]];
-    if (model === 'res.users') {
-      domain = ['|', ['name', 'in', toSearch], ['login', 'in', toSearch]];
-    }
-    
-    var results = odooSearchRead(config, model, domain, ['id', 'name']);
-    results.forEach(function(r) {
-      cache[model][r.name] = r.id;
-      cache[model][r.name.toLowerCase()] = r.id;
-      if (r.login) cache[model][r.login.toLowerCase()] = r.id;
-      
-      toSearch.forEach(function(ts) {
-        if (ts.toLowerCase() === r.name.toLowerCase() || (r.login && ts.toLowerCase() === r.login.toLowerCase())) {
-          ids.push(r.id);
-        }
-      });
-    });
-  } catch(e) {
-    Logger.log("Erreur recherche IDs pour " + model + ": " + e.message);
-  }
-  
-  return ids.filter(function(item, pos) { return ids.indexOf(item) == pos; });
 }
 
 /**
@@ -982,8 +373,7 @@ function handleMissingRelationBulk(config, model, names, headerName, results, pr
       // 5. AUTO-EXPORT de l'onglet de dépendance
       results.logs.push('🚀 Lancement de l\'export automatique pour "' + sheet.getName() + '"...');
       
-      // On récupère les indices des lignes à exporter (toutes les lignes ayant un nom mais pas encore d'ID Odoo dans les faits)
-      // Pour faire simple, on exporte tout l'onglet
+      // On récupère les indices des lignes à exporter
       var indices = [];
       for (var k = 0; k < toAdd.length + (lastRow > 1 ? lastRow - 1 : 0); k++) { indices.push(k); }
       
@@ -1129,6 +519,85 @@ function syncOdooRecordsToSheet(config, model, sheet, results) {
   }
 }
 
-function handleMissingRelation(config, model, names, headerName) {
-  // OBSOLETE: Remplacé par handleMissingRelationBulk
+/**
+ * Condense les messages d'erreur Odoo pour l'utilisateur
+ */
+function condenseOdooError(msg) {
+    if (!msg) return "Erreur inconnue";
+    
+    // Remove "Erreur Odoo: " prefix if present
+    if (msg.indexOf('Erreur Odoo: ') === 0) {
+        msg = msg.substring(13); // "Erreur Odoo: ".length = 13
+    }
+    
+    // Si c'est déjà court et sans traceback
+    if (msg.length < 150 && msg.indexOf('Traceback') === -1 && msg.indexOf('File "') === -1) {
+        return cleanupErrorMessage(msg);
+    }
+
+    // Extraction des erreurs Python connues
+    var errorPatterns = [
+        /ValidationError:\s*'([^']+)'/i,
+        /ValidationError:\s*"([^"]+)"/i,
+        /ValidationError:\s*(.+?)(?:\n|$)/i,
+        /ValueError:\s*(.+?)(?:\n|$)/i,
+        /required field.*?'([^']+)'/i,
+        /missing required field.*?'([^']+)'/i,
+        /Wrong value for.*?'([^']+)'.*?'([^']+)'/i,
+        /Error:\s*'([^']+)'/i,
+        /Error:\s*"([^"]+)"/i
+    ];
+    
+    for (var i = 0; i < errorPatterns.length; i++) {
+        var match = msg.match(errorPatterns[i]);
+        if (match) {
+            var extracted = match[1] || match[0];
+            if (match[2]) {
+                extracted = extracted + ": " + match[2];
+            }
+            return cleanupErrorMessage(extracted);
+        }
+    }
+    
+    if (msg.indexOf('singleton') !== -1 && msg.indexOf('Expected singleton') !== -1) {
+        return "Erreur de données: valeur unique attendue (vérifiez le format des champs relationnels)";
+    }
+    
+    var lines = msg.split('\n');
+    for (var j = 0; j < lines.length; j++) {
+        var line = lines[j].trim();
+        if (line && 
+            line.indexOf('Traceback') === -1 && 
+            line.indexOf('File "') === -1 &&
+            line.indexOf('line ') === -1 &&
+            line.length > 10) {
+            return cleanupErrorMessage(line.substring(0, 200));
+        }
+    }
+    
+    return cleanupErrorMessage(msg.substring(0, 150) + "...");
+}
+
+/**
+ * Nettoie le message d'erreur pour l'affichage
+ */
+function cleanupErrorMessage(msg) {
+    msg = msg.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+    msg = msg.replace(/\s+/g, ' ').trim();
+    return msg;
+}
+
+function createXmlId(config, model, resId, xmlId) {
+    var payload = {
+        'name': xmlId,
+        'module': 'odoo_rdd_export',
+        'model': model,
+        'res_id': resId,
+        'noupdate': false
+    };
+    try {
+        odooCreate(config, 'ir.model.data', payload);
+    } catch(e) {
+        Logger.log("Erreur création xml_id (peut-être existant): " + e.message);
+    }
 }
