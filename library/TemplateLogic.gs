@@ -263,10 +263,7 @@ function template_showContextualMappingSidebar() {
   return createUnifiedSidebar();
 }
 
-function template_showFormattingSidebar() {
-  PropertiesService.getUserProperties().setProperty('SIDEBAR_MODE', 'FORMATTING');
-  return createUnifiedSidebar();
-}
+// function template_showFormattingSidebar() { ... } // Removed
 
 function createUnifiedSidebar() {
   Logger.log('createUnifiedSidebar called');
@@ -377,7 +374,7 @@ function template_createOdooMenu(statusEmoji) {
     .addSubMenu(ui.createMenu('Traitement des données')
       .addItem('Mapping', 'showContextualMappingSidebar')
       .addItem('Dédoublonnage', 'showPlaceholder')
-      .addItem('Formatage', 'showFormattingSidebar')
+      .addItem('Formatage', 'formatActiveSheet')
       .addItem('Enrichissement', 'showEnrichmentSidebar')
       .addItem('Fusionner', 'enrichment_mergeTabs')
       .addItem('Validation', 'showPlaceholder'))

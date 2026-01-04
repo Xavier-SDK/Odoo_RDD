@@ -45,9 +45,18 @@ function showContextualMappingSidebar() {
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
-function showFormattingSidebar() {
-  var html = OdooRDD.template_showFormattingSidebar();
-  SpreadsheetApp.getUi().showSidebar(html);
+// function showFormattingSidebar() { ... } // Removed
+  
+// ...
+
+function formatActiveSheet() {
+  var result = OdooRDD.formatActiveSheet();
+  if (result.success) {
+    SpreadsheetApp.getActiveSpreadsheet().toast(result.message);
+  } else {
+    SpreadsheetApp.getUi().alert(result.message);
+  }
+  return result; // Keep return just in case
 }
 
 function showEnrichmentSidebar() {
@@ -101,9 +110,7 @@ function testMappingData(sheetName, modelName, columnMappings) {
   return OdooRDD.testMappingData(sheetName, modelName, columnMappings);
 }
 
-function formatActiveSheet() {
-  return OdooRDD.formatActiveSheet();
-}
+// function formatActiveSheet() { ... } // Moved up
 
 
 function activateAIAuthorization() {

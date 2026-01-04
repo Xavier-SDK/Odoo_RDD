@@ -355,17 +355,7 @@
             <div id="mapping-status" class="status"></div>
         </div>
 
-        <!-- Vue Formatage -->
-        <div id="formatting-view">
-            <div class="info-text" style="margin-bottom:20px; color:#5f6368; font-size:13px;">
-                Appliquez un formatage standard à l'onglet en cours.
-            </div>
-
-            <button id="format-btn">Mise en forme</button>
-
-            <div class="loading" id="formatting-loading">Mise en forme en cours...</div>
-            <div id="formatting-status" class="status"></div>
-        </div>
+        <!-- View Removed: Formatting Sidebar -->
 
         <!-- Vue Enrichissement -->
         <div id="enrichment-view">
@@ -446,7 +436,7 @@
             // safeAddListener('ai-btn', 'click', loadAiSuggestions); // Removed - auto-AI
 
             // Formatage (Global)
-            safeAddListener('format-btn', 'click', handleFormatting);
+            // safeAddListener('format-btn', 'click', handleFormatting); // Removed
 
             // Enrichissement
             safeAddListener('saveBackupBtn', 'click', handleSaveBackup);
@@ -617,36 +607,7 @@
             document.getElementById('enrichment-view').style.display = 'none';
         }
 
-        function handleFormatting() {
-            var btn = document.getElementById('format-btn');
-            var loading = document.getElementById('formatting-loading');
-            var status = document.getElementById('formatting-status');
-
-            btn.disabled = true;
-            loading.style.display = 'block';
-            status.style.display = 'none';
-
-            google.script.run
-                .withSuccessHandler(function (result) {
-                    btn.disabled = false;
-                    loading.style.display = 'none';
-                    status.className = 'status ' + (result.success ? 'success' : 'error');
-                    status.textContent = result.message;
-                    status.style.display = 'block';
-
-                    if (result.success) {
-                        setTimeout(() => { status.style.display = 'none'; }, 3000);
-                    }
-                })
-                .withFailureHandler(function (err) {
-                    btn.disabled = false;
-                    loading.style.display = 'none';
-                    status.className = 'status error';
-                    status.textContent = 'Erreur: ' + err.message;
-                    status.style.display = 'block';
-                })
-                .formatActiveSheet();
-        }
+        // function handleFormatting() { ... } // Removed
 
         // === VUE CONFIGURATION ===
         function initConfigView(data) {
