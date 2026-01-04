@@ -146,7 +146,7 @@ function template_getOdooConfig() {
       database: database,
       user: user,
       apiKey: apiKey,
-      googleAiKey: googleAiKey
+      googleAiKey: googleAiKey ? googleAiKey.trim() : ''
     };
   } catch (e) {
     Logger.log('Erreur dans template_getOdooConfig: ' + e.toString());
@@ -590,94 +590,154 @@ function enrichment_populateStates() {
       return { success: false, message: 'Vous devez créer une colonne État si elle n\'existe pas, et mapper les champs disponibles avec ceux d\'Odoo via le menu "Odoo RDD > Traitement des données > Mapping".' };
     }
     
-    // Récupérer les données d'adresse
+    // Récupérer les données d'adresse en bloc pour performance
     var lastRow = activeSheet.getLastRow();
+    var lastCol = activeSheet.getLastColumn();
     if (lastRow < 2) {
       return { success: false, message: 'Aucune donnée à traiter.' };
     }
     
+    var dataRange = activeSheet.getRange(1, 1, lastRow, lastCol);
+    var dataValues = dataRange.getValues();
+    var displayValues = dataRange.getDisplayValues();
+    var dataFormulas = dataRange.getFormulas();
+    
     var addresses = [];
-    for (var row = 2; row <= lastRow; row++) {
+    for (var i = 1; i < lastRow; i++) { // i=1 correspond à la ligne 2 (index 1 dans la matrice)
+      var row = i + 1;
+      
+      // Fonction interne pour récupérer une valeur propre ou extraite d'une formule en cas d'erreur
+      var getV = function(colIndex) {
+        if (!colIndex) return '';
+        var c = colIndex - 1;
+        var val = dataValues[i][c].toString().trim();
+        var disp = displayValues[i][c].trim();
+        var formula = dataFormulas[i][c];
+        
+        // Si erreur (#...), on tente de sauver le contenu de la formule
+        if (disp.startsWith('#') && formula) {
+          return formula.replace(/^=['"]?/, '').replace(/['"]?$/, '').trim();
+        }
+        return disp || val;
+      };
+      
       var addr = {
         row: row,
-        street: addressFields.street ? activeSheet.getRange(row, addressFields.street).getDisplayValue() : '',
-        street2: addressFields.street2 ? activeSheet.getRange(row, addressFields.street2).getDisplayValue() : '',
-        zip: addressFields.zip ? activeSheet.getRange(row, addressFields.zip).getDisplayValue() : '',
-        city: addressFields.city ? activeSheet.getRange(row, addressFields.city).getDisplayValue() : '',
-        country: addressFields.country ? activeSheet.getRange(row, addressFields.country).getDisplayValue() : ''
+        street: getV(addressFields.street),
+        street2: getV(addressFields.street2),
+        zip: getV(addressFields.zip),
+        city: getV(addressFields.city),
+        country: getV(addressFields.country)
       };
-      addresses.push(addr);
-    }
-    
-    // Préparer le prompt pour Gemini
-    var prompt = "Pour chaque adresse ci-dessous, identifie l'état/province dans sa langue d'origine, suivi du code pays entre parenthèses (ex: North Carolina (US), Baden-Württemberg (DE), Andhra Pradesh (IN)). Réponds UNIQUEMENT avec un tableau JSON où chaque élément contient {\"index\": <numéro>, \"state\": \"<état (CODE)\"}. Si l'état ne peut pas être déterminé, utilise une chaîne vide.\n\nAdresses:\n" + JSON.stringify(addresses.map(function(a, i) { 
-      return {index: i, street: a.street, street2: a.street2, zip: a.zip, city: a.city, country: a.country}; 
-    }));
-    
-    var url = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=" + apiKey;
-    var payload = {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 8000 }
-    };
-    
-    var options = {
-      method: "post",
-      contentType: "application/json",
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    };
-    
-    var response = UrlFetchApp.fetch(url, options);
-    var responseCode = response.getResponseCode();
-    var responseText = response.getContentText();
-    
-    // Log for debugging
-    Logger.log('Gemini API Response Code: ' + responseCode);
-    Logger.log('Gemini API Response: ' + responseText.substring(0, 500));
-    
-    if (responseCode !== 200) {
-      return { success: false, message: 'Erreur API (Code ' + responseCode + '): ' + responseText.substring(0, 200) };
-    }
-    
-    var result = JSON.parse(responseText);
-    
-    // Check for API errors
-    if (result.error) {
-      return { success: false, message: 'Erreur API: ' + (result.error.message || JSON.stringify(result.error)) };
-    }
-    
-    if (!result.candidates || !result.candidates[0] || !result.candidates[0].content) {
-      // Provide more detail about what we received
-      var debugInfo = 'Réponse API inattendue. ';
-      if (result.candidates && result.candidates[0]) {
-        if (result.candidates[0].finishReason) {
-          debugInfo += 'Raison: ' + result.candidates[0].finishReason + '. ';
-        }
-        if (result.candidates[0].safetyRatings) {
-          debugInfo += 'Filtres de sécurité activés. ';
-        }
-      }
-      Logger.log('Full API response: ' + JSON.stringify(result));
-      return { success: false, message: debugInfo + 'Consultez les logs pour plus de détails.' };
-    }
-    
-    var aiText = result.candidates[0].content.parts[0].text.trim();
-    // Extraire le JSON de la réponse
-    var jsonMatch = aiText.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) {
-      return { success: false, message: 'Réponse IA invalide : ' + aiText.substring(0, 100) };
-    }
-    
-    var states = JSON.parse(jsonMatch[0]);
-    
-    // Peupler la colonne État
-    for (var i = 0; i < states.length; i++) {
-      if (states[i].state) {
-        activeSheet.getRange(addresses[states[i].index].row, addressFields.state).setValue(states[i].state);
+      
+      // Filter: Uniquement les lignes avec un minimum d'info
+      if (addr.street || addr.street2 || addr.city || addr.zip) {
+        addresses.push(addr);
       }
     }
     
-    return { success: true, message: states.length + ' états peuplés avec succès.' };
+    if (addresses.length === 0) {
+      return { success: true, message: 'Aucune adresse à traiter (lignes vides).' };
+    }
+    
+    // Paramètres de batching
+    var BATCH_SIZE = 30;
+    var updatedCount = 0;
+    var totalBatches = Math.ceil(addresses.length / BATCH_SIZE);
+    
+    // Créer des matrices pour la mise à jour en bloc
+    var stateRange = activeSheet.getRange(2, addressFields.state, lastRow - 1, 1);
+    var stateValues = stateRange.getValues();
+    var cityRange = addressFields.city ? activeSheet.getRange(2, addressFields.city, lastRow - 1, 1) : null;
+    var cityValues = cityRange ? cityRange.getValues() : null;
+    
+    for (var b = 0; b < addresses.length; b += BATCH_SIZE) {
+      var currentBatchNum = Math.floor(b / BATCH_SIZE) + 1;
+      var percent = Math.round((currentBatchNum / totalBatches) * 100);
+      _updateProgress(percent, "Lot " + currentBatchNum + " / " + totalBatches);
+      
+      var progressVal = Math.round((currentBatchNum / totalBatches) * 10);
+      var bar = "";
+      for (var p = 0; p < 10; p++) bar += (p < progressVal) ? "█" : "░";
+      ss.toast(bar + " " + Math.round((currentBatchNum / totalBatches) * 100) + "% (Lot " + currentBatchNum + "/" + totalBatches + ")", "Enrichissement des états & villes", -1);
+      
+      var batch = addresses.slice(b, b + BATCH_SIZE);
+      
+      // Préparer le prompt pour ce batch - Corrigé pour inclure la ville
+      var prompt = "Pour chaque adresse ci-dessous, identifie l'état/province (suivi du code pays entre parenthèses, ex: North Carolina (US)) ET corrige/normalise le nom de la ville. Réponds UNIQUEMENT avec un tableau JSON où chaque élément contient {\"index\": <numéro>, \"state\": \"<état (CODE)>\", \"city\": \"<ville corrigée>\"}.\n\nAdresses:\n" + JSON.stringify(batch.map(function(a, i) { 
+        return {index: i, street: a.street, street2: a.street2, zip: a.zip, city: a.city, country: a.country}; 
+      }));
+      
+      var url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=" + apiKey;
+      var payload = {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 8000 }
+      };
+      
+      var options = {
+        method: "post",
+        contentType: "application/json",
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      };
+      
+      var response = UrlFetchApp.fetch(url, options);
+      var responseCode = response.getResponseCode();
+      var responseText = response.getContentText();
+      
+      Logger.log('Batch ' + (b/BATCH_SIZE + 1) + ' - Response Code: ' + responseCode);
+      
+      if (responseCode !== 200) {
+        Logger.log('Erreur Batch ' + (b/BATCH_SIZE + 1) + ': ' + responseText);
+        continue;
+      }
+      
+      var result = JSON.parse(responseText);
+      
+      if (!result.candidates || !result.candidates[0] || !result.candidates[0].content) {
+        Logger.log('Réponse Batch ' + (b/BATCH_SIZE + 1) + ' vide ou invalide.');
+        continue;
+      }
+      
+      var aiText = result.candidates[0].content.parts[0].text.trim();
+      var results = _extractJsonArray(aiText);
+      
+      if (!results) {
+        Logger.log('Parsing Batch ' + (b/BATCH_SIZE + 1) + ' échoué.');
+        continue;
+      }
+      
+      // Peupler les matrices avec les résultats du batch
+      for (var i = 0; i < results.length; i++) {
+        var resData = results[i];
+        if (resData.index >= 0 && resData.index < batch.length) {
+          var actualRow = batch[resData.index].row;
+          
+          // Mise à jour État
+          if (resData.state) {
+            stateValues[actualRow - 2][0] = resData.state;
+          }
+          
+          // Mise à jour Ville (si la colonne existe)
+          if (resData.city && cityValues) {
+            cityValues[actualRow - 2][0] = resData.city;
+          }
+          
+          updatedCount++;
+        }
+      }
+    }
+    
+    // Mise à jour en bloc finale
+    stateRange.setValues(stateValues);
+    if (cityRange && cityValues) {
+      cityRange.setValues(cityValues);
+    }
+    
+    _updateProgress(100, "Terminé");
+    ss.toast("Peuplement des états et villes terminé !", "Odoo RDD", 5);
+    
+    return { success: true, message: updatedCount + ' lignes traitées avec succès.' };
     
   } catch (e) {
     Logger.log('Error in enrichment_populateStates: ' + e.toString());
@@ -732,94 +792,150 @@ function enrichment_populateCountries() {
       return { success: false, message: 'Colonne Pays introuvable dans le mapping.' };
     }
     
-    // Récupérer les données d'adresse
+    // Récupérer les données d'adresse en bloc pour performance
     var lastRow = activeSheet.getLastRow();
+    var lastCol = activeSheet.getLastColumn();
     if (lastRow < 2) {
       return { success: false, message: 'Aucune donnée à traiter.' };
     }
     
+    var dataRange = activeSheet.getRange(1, 1, lastRow, lastCol);
+    var dataValues = dataRange.getValues();
+    var displayValues = dataRange.getDisplayValues();
+    var dataFormulas = dataRange.getFormulas();
+    
     var addresses = [];
-    for (var row = 2; row <= lastRow; row++) {
+    for (var i = 1; i < lastRow; i++) {
+      var row = i + 1;
+      
+      var getV = function(colIndex) {
+        if (!colIndex) return '';
+        var c = colIndex - 1;
+        var val = dataValues[i][c].toString().trim();
+        var disp = displayValues[i][c].trim();
+        var formula = dataFormulas[i][c];
+        
+        if (disp.startsWith('#') && formula) {
+          return formula.replace(/^=['"]?/, '').replace(/['"]?$/, '').trim();
+        }
+        return disp || val;
+      };
+      
       var addr = {
         row: row,
-        street: addressFields.street ? activeSheet.getRange(row, addressFields.street).getDisplayValue() : '',
-        street2: addressFields.street2 ? activeSheet.getRange(row, addressFields.street2).getDisplayValue() : '',
-        zip: addressFields.zip ? activeSheet.getRange(row, addressFields.zip).getDisplayValue() : '',
-        city: addressFields.city ? activeSheet.getRange(row, addressFields.city).getDisplayValue() : ''
+        street: getV(addressFields.street),
+        street2: getV(addressFields.street2),
+        zip: getV(addressFields.zip),
+        city: getV(addressFields.city)
       };
-      addresses.push(addr);
-    }
-    
-    // Préparer le prompt pour Gemini
-    var prompt = "Pour chaque adresse ci-dessous, identifie le pays en français. Réponds UNIQUEMENT avec un tableau JSON où chaque élément contient {\"index\": <numéro>, \"country\": \"<pays en français>\"}.\n\nAdresses:\n" + JSON.stringify(addresses.map(function(a, i) { 
-      return {index: i, street: a.street, street2: a.street2, zip: a.zip, city: a.city}; 
-    }));
-    
-    var url = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=" + apiKey;
-    var payload = {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 8000 }
-    };
-    
-    var options = {
-      method: "post",
-      contentType: "application/json",
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    };
-    
-    
-    var response = UrlFetchApp.fetch(url, options);
-    var responseCode = response.getResponseCode();
-    var responseText = response.getContentText();
-    
-    // Log for debugging
-    Logger.log('Gemini API Response Code: ' + responseCode);
-    Logger.log('Gemini API Response: ' + responseText.substring(0, 500));
-    
-    if (responseCode !== 200) {
-      return { success: false, message: 'Erreur API (Code ' + responseCode + '): ' + responseText.substring(0, 200) };
-    }
-    
-    var result = JSON.parse(responseText);
-    
-    // Check for API errors
-    if (result.error) {
-      return { success: false, message: 'Erreur API: ' + (result.error.message || JSON.stringify(result.error)) };
-    }
-    
-    if (!result.candidates || !result.candidates[0] || !result.candidates[0].content) {
-      // Provide more detail about what we received
-      var debugInfo = 'Réponse API inattendue. ';
-      if (result.candidates && result.candidates[0]) {
-        if (result.candidates[0].finishReason) {
-          debugInfo += 'Raison: ' + result.candidates[0].finishReason + '. ';
-        }
-        if (result.candidates[0].safetyRatings) {
-          debugInfo += 'Filtres de sécurité activés. ';
-        }
-      }
-      Logger.log('Full API response: ' + JSON.stringify(result));
-      return { success: false, message: debugInfo + 'Consultez les logs pour plus de détails.' };
-    }
-    
-    var aiText = result.candidates[0].content.parts[0].text.trim();
-    // Extraire le JSON de la réponse
-    var jsonMatch = aiText.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) {
-      return { success: false, message: 'Réponse IA invalide : ' + aiText.substring(0, 100) };
-    }
-    
-    var countries = JSON.parse(jsonMatch[0]);
-    
-    // Peupler la colonne Pays
-    for (var i = 0; i < countries.length; i++) {
-      if (countries[i].country) {
-        activeSheet.getRange(addresses[countries[i].index].row, addressFields.country).setValue(countries[i].country);
+      
+      if (addr.street || addr.street2 || addr.city || addr.zip) {
+        addresses.push(addr);
       }
     }
     
-    return { success: true, message: countries.length + ' pays peuplés avec succès.' };
+    if (addresses.length === 0) {
+      return { success: true, message: 'Aucune adresse à traiter (lignes vides).' };
+    }
+    
+    // Paramètres de batching
+    var BATCH_SIZE = 50;
+    var updatedCount = 0;
+    var totalBatches = Math.ceil(addresses.length / BATCH_SIZE);
+    
+    // Créer des matrices pour la mise à jour en bloc
+    var countryRange = activeSheet.getRange(2, addressFields.country, lastRow - 1, 1);
+    var countryValues = countryRange.getValues();
+    var cityRange = addressFields.city ? activeSheet.getRange(2, addressFields.city, lastRow - 1, 1) : null;
+    var cityValues = cityRange ? cityRange.getValues() : null;
+    
+    for (var b = 0; b < addresses.length; b += BATCH_SIZE) {
+      var currentBatchNum = Math.floor(b / BATCH_SIZE) + 1;
+      var percent = Math.round((currentBatchNum / totalBatches) * 100);
+      _updateProgress(percent, "Lot " + currentBatchNum + " / " + totalBatches);
+      
+      var progressVal = Math.round((currentBatchNum / totalBatches) * 10);
+      var bar = "";
+      for (var p = 0; p < 10; p++) bar += (p < progressVal) ? "█" : "░";
+      ss.toast(bar + " " + Math.round((currentBatchNum / totalBatches) * 100) + "% (Lot " + currentBatchNum + "/" + totalBatches + ")", "Enrichissement des pays & villes", -1);
+      
+      var batch = addresses.slice(b, b + BATCH_SIZE);
+      
+      // Préparer le prompt pour ce batch - Corrigé pour inclure la ville
+      var prompt = "Pour chaque adresse ci-dessous, identifie le pays en français ET corrige/normalise le nom de la ville. Réponds UNIQUEMENT avec un tableau JSON où chaque élément contient {\"index\": <numéro>, \"country\": \"<pays en français>\", \"city\": \"<ville corrigée>\"}.\n\nAdresses:\n" + JSON.stringify(batch.map(function(a, i) { 
+        return {index: i, street: a.street, street2: a.street2, zip: a.zip, city: a.city}; 
+      }));
+      
+      var url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=" + apiKey;
+      var payload = {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 8000 }
+      };
+      
+      var options = {
+        method: "post",
+        contentType: "application/json",
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      };
+      
+      var response = UrlFetchApp.fetch(url, options);
+      var responseCode = response.getResponseCode();
+      var responseText = response.getContentText();
+      
+      Logger.log('Batch ' + (b/BATCH_SIZE + 1) + ' - Response Code: ' + responseCode);
+      
+      if (responseCode !== 200) {
+        Logger.log('Erreur Batch ' + (b/BATCH_SIZE + 1) + ': ' + responseText);
+        continue;
+      }
+      
+      var result = JSON.parse(responseText);
+      
+      if (!result.candidates || !result.candidates[0] || !result.candidates[0].content) {
+        Logger.log('Réponse Batch ' + (b/BATCH_SIZE + 1) + ' vide ou invalide.');
+        continue;
+      }
+      
+      var aiText = result.candidates[0].content.parts[0].text.trim();
+      var results = _extractJsonArray(aiText);
+      
+      if (!results) {
+        Logger.log('Parsing Batch ' + (b/BATCH_SIZE + 1) + ' échoué.');
+        continue;
+      }
+      
+      // Peupler les matrices avec les résultats du batch
+      for (var i = 0; i < results.length; i++) {
+        var resData = results[i];
+        if (resData.index >= 0 && resData.index < batch.length) {
+          var actualRow = batch[resData.index].row;
+          
+          // Mise à jour Pays
+          if (resData.country) {
+            countryValues[actualRow - 2][0] = resData.country;
+          }
+          
+          // Mise à jour Ville (si la colonne existe)
+          if (resData.city && cityValues) {
+            cityValues[actualRow - 2][0] = resData.city;
+          }
+          
+          updatedCount++;
+        }
+      }
+    }
+    
+    // Mise à jour en bloc finale
+    countryRange.setValues(countryValues);
+    if (cityRange && cityValues) {
+      cityRange.setValues(cityValues);
+    }
+    
+    _updateProgress(100, "Terminé");
+    ss.toast("Peuplement des pays et villes terminé !", "Odoo RDD", 5);
+    
+    return { success: true, message: updatedCount + ' lignes traitées avec succès.' };
     
   } catch (e) {
     Logger.log('Error in enrichment_populateCountries: ' + e.toString());
@@ -842,23 +958,26 @@ function enrichment_formatPhones() {
     }
     
     var headers = activeSheet.getRange(1, 1, 1, activeSheet.getLastColumn()).getValues()[0];
-    var phoneCol = null;
+    var phoneCols = []; // Tableau pour stocker tous les index de colonnes téléphone/mobile
     var countryCol = null;
     
     for (var i = 0; i < sheetMappings.length; i++) {
       var mapping = sheetMappings[i];
       var odooField = mapping['Champ Odoo'];
-      var colName = mapping['Entête'];  // Use header name instead of column letter
+      var colName = mapping['Entête'];
       var colIndex = headers.indexOf(colName);
       
       if (colIndex >= 0) {
-        if (odooField === 'phone' || odooField === 'mobile') phoneCol = colIndex + 1;
-        else if (odooField === 'country_id') countryCol = colIndex + 1;
+        if (odooField === 'phone' || odooField === 'mobile') {
+          phoneCols.push(colIndex + 1);
+        } else if (odooField === 'country_id') {
+          countryCol = colIndex + 1;
+        }
       }
     }
     
-    if (!phoneCol) {
-      return { success: false, message: 'Colonne téléphone introuvable dans le mapping.' };
+    if (phoneCols.length === 0) {
+      return { success: false, message: 'Aucune colonne téléphone ou mobile trouvée dans le mapping.' };
     }
     
     // Charger la table des codes pays
@@ -869,54 +988,168 @@ function enrichment_formatPhones() {
       return { success: false, message: 'Aucune donnée à traiter.' };
     }
     
-    var formatted = 0;
-    for (var row = 2; row <= lastRow; row++) {
-      var phone = activeSheet.getRange(row, phoneCol).getDisplayValue().toString().trim();
+    var countryValues = countryCol ? activeSheet.getRange(2, countryCol, lastRow - 1, 1).getValues() : null;
+    var totalFormatted = 0;
+    
+    Logger.log('Processing phone formatting for ' + phoneCols.length + ' columns, lastRow: ' + lastRow);
+    
+    // Traiter chaque colonne identifiée
+    for (var c = 0; c < phoneCols.length; c++) {
+      var currentCol = phoneCols[c];
+      var phoneRange = activeSheet.getRange(2, currentCol, lastRow - 1, 1);
+      var phoneValues = phoneRange.getValues();
+      var phoneDisplayValues = phoneRange.getDisplayValues(); // Plus fiable pour détecter #ERROR!
+      var phoneFormulas = phoneRange.getFormulas();
+      var colUpdated = false;
       
-      // Si commence par =, on nettoie
-      if (phone.startsWith('=')) {
-        phone = phone.substring(1).trim();
+      Logger.log('Column ' + currentCol + ': ' + phoneValues.length + ' rows to process');
+      
+      for (var i = 0; i < phoneValues.length; i++) {
+        if (i % 100 === 0) {
+          var totalProgress = Math.round(((c * phoneValues.length + i) / (phoneCols.length * phoneValues.length)) * 100);
+          _updateProgress(totalProgress, "Colonne " + (c+1) + "/" + phoneCols.length + " - " + i + "/" + phoneValues.length);
+        }
+        var rawValue = phoneValues[i][0].toString().trim();
+        var displayValue = phoneDisplayValues[i][0].trim();
+        var formula = phoneFormulas[i][0].trim();
+        var phone = rawValue;
+        
+        // Si la valeur affichée est une erreur (ex: #ERROR!) ou s'il y a une formule
+        if (formula || displayValue.startsWith('#')) {
+          // Extraire le contenu de la formule (ex: "=+32..." -> "+32...")
+          var extracted = formula;
+          if (formula.startsWith('=')) {
+            extracted = formula.substring(1);
+          } else if (displayValue.startsWith('#') && !formula) {
+            // Cas extrême : erreur sans formule apparente dans getFormulas() ? 
+            // On tente de voir si la valeur brute contient quelque chose
+            extracted = rawValue;
+          }
+          
+          // Retirer les guillemets si présents
+          extracted = extracted.replace(/^['"]/, '').replace(/['"]$/, '').trim();
+          
+          if (extracted.replace(/\D/g, '').length >= 5) {
+            phone = extracted;
+            Logger.log('Row ' + (i+2) + ': Rescued phone from formula/error: ' + extracted);
+          }
+        }
+        
+        // Nettoyage manuel au cas où (prefix =)
+        if (phone.startsWith('=')) {
+          phone = phone.substring(1).trim();
+        }
+        
+        if (!phone || phone.startsWith('#')) continue;
+        
+        var country = countryValues ? countryValues[i][0].toString().trim() : 'France';
+        
+        // Trouver l'indicatif du pays
+        var countryData = countryCodes.find(function(item) {
+          return item['Code du pays'] === country || item['Nom du pays'] === country;
+        });
+        
+        var countryCode = '33';
+        if (countryData) {
+          countryCode = countryData['Indice'] || (isNaN(parseInt(countryData['Code du pays'])) ? '33' : countryData['Code du pays']);
+        }
+        
+        // Nettoyage des caractères non-numériques sauf le +
+        var tempPhone = phone.replace(/[^\d+]/g, '');
+        var cleanNum = tempPhone.replace(/\D/g, '');
+        
+        // Cas CC + 0 + reste (ex: 320487...)
+        if (cleanNum.indexOf(countryCode) === 0 && cleanNum.charAt(countryCode.length) === '0' && cleanNum.length > countryCode.length + 1) {
+          cleanNum = countryCode + cleanNum.substring(countryCode.length + 1);
+        } else {
+          cleanNum = cleanNum.replace(/^0/, '');
+        }
+        
+        if (!cleanNum) continue;
+        
+        var formattedPhone = '';
+        if (cleanNum.indexOf(countryCode) === 0) {
+          formattedPhone = '+' + cleanNum;
+        } else {
+          formattedPhone = '+' + countryCode + cleanNum;
+        }
+        
+        // Comparaison avec displayValue pour être sûr de corriger l'erreur visuelle
+        if (displayValue !== formattedPhone) {
+          phoneValues[i][0] = formattedPhone;
+          totalFormatted++;
+          colUpdated = true;
+        }
       }
       
-      if (!phone) continue;
-      
-      var country = countryCol ? activeSheet.getRange(row, countryCol).getDisplayValue().toString().trim() : 'France';
-      
-      // Trouver l'indicatif du pays
-      var countryData = countryCodes.find(function(c) {
-        return c['Code du pays'] === country || c['Nom du pays'] === country;
-      });
-      
-      // Utiliser 'Indice' s'il existe, sinon fallback sur 'Code du pays' (si numérique) ou 33
-      var countryCode = '33';
-      if (countryData) {
-        countryCode = countryData['Indice'] || (isNaN(parseInt(countryData['Code du pays'])) ? '33' : countryData['Code du pays']);
+      // Écriture en bloc pour cette colonne si elle a été modifiée
+      if (colUpdated) {
+        phoneRange.setValues(phoneValues);
+        Logger.log('Column ' + currentCol + ': Updated ' + totalFormatted + ' rows');
       }
-      
-      // Nettoyer le numéro
-      var cleanNum = phone.replace(/\D/g, '');
-      if (!cleanNum) continue;
-      
-      // Retirer le zéro initial si présent
-      cleanNum = cleanNum.replace(/^0/, '');
-      
-      // Ajouter l'indicatif si pas déjà présent
-      var formattedPhone = '';
-      if (cleanNum.indexOf(countryCode) === 0) {
-        formattedPhone = '+' + cleanNum;
-      } else {
-        formattedPhone = '+' + countryCode + cleanNum;
-      }
-      
-      activeSheet.getRange(row, phoneCol).setValue(formattedPhone);
-      formatted++;
     }
     
-    return { success: true, message: formatted + ' numéros formatés avec succès.' };
+    _updateProgress(100, "Terminé");
+    return { success: true, message: totalFormatted + ' numéros formatés avec succès dans ' + phoneCols.length + ' colonnes.' };
     
   } catch (e) {
     Logger.log('Error in enrichment_formatPhones: ' + e.toString());
+    _updateProgress(0, "Erreur");
     return { success: false, message: 'Erreur : ' + e.toString() };
   }
+}
+
+/**
+ * Récupère la progression actuelle depuis le cache (appelé par le sidebar)
+ */
+function getProgress() {
+  var cache = CacheService.getUserCache();
+  var progress = cache.get('odoo_rdd_progress');
+  if (progress) {
+    return JSON.parse(progress);
+  }
+  return { percent: 0, status: 'Initialisation...' };
+}
+
+/**
+ * Met à jour la progression dans le cache
+ * @private
+ */
+function _updateProgress(percent, status) {
+  var cache = CacheService.getUserCache();
+  cache.put('odoo_rdd_progress', JSON.stringify({ percent: percent, status: status }), 600);
+}
+
+/**
+ * Extrait un tableau JSON d'une chaîne de texte (robuste aux blocs markdown)
+ * @param {string} text 
+ * @return {Array|null}
+ */
+function _extractJsonArray(text) {
+  if (!text) return null;
+  
+  // 1. Nettoyer les blocs markdown JSON si présents
+  var cleanText = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+  
+  // 2. Tenter de trouver le premier [ et le dernier ]
+  var start = cleanText.indexOf('[');
+  var end = cleanText.lastIndexOf(']');
+  
+  if (start !== -1 && end !== -1 && end > start) {
+    var jsonStr = cleanText.substring(start, end + 1);
+    try {
+      return JSON.parse(jsonStr);
+    } catch (e) {
+      Logger.log('Erreur parsing JSON extrait: ' + e.toString());
+      // Fallback: Si tronqué, on peut tenter de fermer l'array (si le dernier objet est presque fini)
+      try {
+         // Si ça finit par { "index": x, "state": " 
+         // on peut tenter un patchwork, mais c'est risqué. Mieux vaut échouer proprement.
+         return null;
+      } catch (e2) { return null; }
+    }
+  }
+  
+  return null;
 }
 

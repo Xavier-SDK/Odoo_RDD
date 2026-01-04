@@ -201,6 +201,70 @@
             flex: 1;
             overflow-y: auto;
         }
+
+        /* Odoo Console Styles */
+        .odoo-console {
+            background-color: #fff;
+            border: 1px solid #dadce0;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 16px;
+            box-shadow: 0 1px 3px rgba(60, 64, 67, 0.1);
+            display: none;
+        }
+
+        .console-header {
+            text-align: center;
+            margin-bottom: 12px;
+        }
+
+        .console-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #3c4043;
+            margin: 0;
+        }
+
+        .console-divider {
+            height: 1px;
+            background-color: #e8eaed;
+            margin: 12px 0;
+        }
+
+        .console-status {
+            font-size: 13px;
+            color: #5f6368;
+            margin-bottom: 8px;
+        }
+
+        .progress-container {
+            width: 100%;
+            height: 28px;
+            background-color: #e8f5e9;
+            border-radius: 6px;
+            overflow: hidden;
+            position: relative;
+            border: 1px solid #c8e6c9;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background-color: #4caf50;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            position: absolute;
+            width: 100%;
+            text-align: center;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 12px;
+            color: #fff;
+            font-weight: 600;
+            text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+        }
     </style>
 </head>
 
@@ -307,6 +371,19 @@
 
             <div class="loading" id="enrichment-loading">Traitement en cours...</div>
             <div id="enrichment-status" class="status"></div>
+        </div>
+
+        <!-- Odoo Console (Visible pendant les traitements longs) -->
+        <div id="odoo-console" class="odoo-console">
+            <div class="console-header">
+                <h3 class="console-title">Console Odoo</h3>
+            </div>
+            <div class="console-divider"></div>
+            <div id="console-status-text" class="console-status">Initialisation...</div>
+            <div class="progress-container">
+                <div id="console-progress-bar" class="progress-bar"></div>
+                <div id="console-progress-percentage" class="progress-text">0%</div>
+            </div>
         </div>
     </div>
 
@@ -432,43 +509,64 @@
         }
 
         function handlePopulateStates() {
+            showConsole('Enrichissement des états & villes');
+            startPolling();
             setEnrichmentLoading(true);
             google.script.run
                 .withSuccessHandler(function (result) {
                     setEnrichmentLoading(false);
+                    var elapsed = ((Date.now() - consoleStartTime) / 1000).toFixed(1);
+                    updateProgressBar(100, 'Terminé en ' + elapsed + 's');
                     showEnrichmentStatus(result.message, result.success ? 'success' : 'error');
+                    hideConsole(5000);
                 })
                 .withFailureHandler(function (err) {
                     setEnrichmentLoading(false);
+                    updateProgressBar(0, 'Erreur');
                     showEnrichmentStatus('Erreur: ' + err.message, 'error');
+                    stopPolling();
                 })
                 .enrichment_populateStates();
         }
 
         function handlePopulateCountries() {
+            showConsole('Enrichissement des pays & villes');
+            startPolling();
             setEnrichmentLoading(true);
             google.script.run
                 .withSuccessHandler(function (result) {
                     setEnrichmentLoading(false);
+                    var elapsed = ((Date.now() - consoleStartTime) / 1000).toFixed(1);
+                    updateProgressBar(100, 'Terminé en ' + elapsed + 's');
                     showEnrichmentStatus(result.message, result.success ? 'success' : 'error');
+                    hideConsole(5000);
                 })
                 .withFailureHandler(function (err) {
                     setEnrichmentLoading(false);
+                    updateProgressBar(0, 'Erreur');
                     showEnrichmentStatus('Erreur: ' + err.message, 'error');
+                    stopPolling();
                 })
                 .enrichment_populateCountries();
         }
 
         function handleFormatPhones() {
+            showConsole('Formatage des téléphones');
+            startPolling();
             setEnrichmentLoading(true);
             google.script.run
                 .withSuccessHandler(function (result) {
                     setEnrichmentLoading(false);
+                    var elapsed = ((Date.now() - consoleStartTime) / 1000).toFixed(1);
+                    updateProgressBar(100, 'Terminé en ' + elapsed + 's');
                     showEnrichmentStatus(result.message, result.success ? 'success' : 'error');
+                    hideConsole(5000);
                 })
                 .withFailureHandler(function (err) {
                     setEnrichmentLoading(false);
+                    updateProgressBar(0, 'Erreur');
                     showEnrichmentStatus('Erreur: ' + err.message, 'error');
+                    stopPolling();
                 })
                 .enrichment_formatPhones();
         }
@@ -870,6 +968,73 @@
 
         function hideStatus() {
             document.getElementById('mapping-status').style.display = 'none';
+        }
+
+        // === GESTION DE LA CONSOLE ODOO ===
+        var pollingInterval = null;
+        var consoleStartTime = null;
+
+        function showConsole(title) {
+            var consoleEl = document.getElementById('odoo-console');
+            var titleEl = consoleEl.querySelector('.console-title');
+            titleEl.textContent = title || 'Console Odoo';
+
+            document.getElementById('console-status-text').textContent = 'Initialisation...';
+            updateProgressBar(0);
+            consoleEl.style.display = 'block';
+            consoleStartTime = Date.now();
+
+            // Masquer les messages de statut classiques pour ne pas surcharger
+            document.getElementById('enrichment-status').style.display = 'none';
+        }
+
+        function hideConsole(delay) {
+            setTimeout(function () {
+                var consoleEl = document.getElementById('odoo-console');
+                if (consoleEl) consoleEl.style.display = 'none';
+                stopPolling();
+            }, delay || 5000);
+        }
+
+        function updateProgressBar(percent, statusText) {
+            var bar = document.getElementById('console-progress-bar');
+            var text = document.getElementById('console-progress-percentage');
+            if (bar) bar.style.width = percent + '%';
+            if (text) text.textContent = Math.round(percent) + '%';
+            if (statusText) {
+                document.getElementById('console-status-text').textContent = statusText;
+            }
+        }
+
+        function startPolling() {
+            stopPolling();
+            pollingInterval = setInterval(function () {
+                google.script.run
+                    .withSuccessHandler(function (progress) {
+                        if (progress && progress.percent !== undefined) {
+                            var elapsed = ((Date.now() - consoleStartTime) / 1000).toFixed(1);
+                            var status = progress.status || 'Traitement...';
+                            if (progress.percent >= 100) {
+                                status = 'Terminé en ' + elapsed + 's';
+                                stopPolling();
+                            } else {
+                                status = status + ' (' + elapsed + 's)';
+                            }
+                            updateProgressBar(progress.percent, status);
+                        }
+                    })
+                    .withFailureHandler(function (err) {
+                        console.error('Polling error:', err);
+                    })
+                    .getProgress();
+            }, 1000);
+        }
+
+        function stopPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
         }
     </script>
 </body>
