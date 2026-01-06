@@ -26,10 +26,6 @@ var SMART_TABLES = {
   ODOO_CACHE: {
     startCol: 12, // Colonne L
     columns: ['models', 'fields']
-  },
-  TAB_PAYS: {
-    startCol: 15, // Colonne O
-    columns: ['Code du pays', 'Nom du pays', 'Indice']
   }
 };
 
@@ -80,8 +76,15 @@ function readSmartTable(tableName) {
     throw new Error('Table inconnue: ' + tableName);
   }
   
-  var sheet = getParamsSheet();
-  var startCol = tableConfig.startCol;
+  var sheet = tableConfig.sheetName ? 
+              SpreadsheetApp.getActiveSpreadsheet().getSheetByName(tableConfig.sheetName) : 
+              getParamsSheet();
+              
+  if (!sheet) {
+    throw new Error('Onglet "' + (tableConfig.sheetName || 'Paramètres') + '" introuvable');
+  }
+
+  var startCol = tableConfig.startCol || 1;
   var numCols = tableConfig.columns.length;
   
   // Lire toutes les lignes (jusqu'à la dernière ligne de données)

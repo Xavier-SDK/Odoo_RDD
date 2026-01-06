@@ -563,7 +563,8 @@ function enrichment_populateStates() {
     
     // Récupérer le mapping des champs
     var mappings = readSmartTable('ODOO_FIELDS');
-    var sheetMappings = mappings.filter(function(m) { return m['Onglet'] === sheetName; });
+    var sheetId = activeSheet.getSheetId().toString();
+    var sheetMappings = mappings.filter(function(m) { return String(m['ID Onglet']) === sheetId; });
     
     if (sheetMappings.length === 0) {
       return { success: false, message: 'Vous devez d\'abord mapper les champs disponibles avec ceux d\'Odoo via le menu "Odoo RDD > Traitement des données > Mapping".' };
@@ -670,7 +671,10 @@ function enrichment_populateStates() {
       var batch = addresses.slice(b, b + BATCH_SIZE);
       
       // Préparer le prompt pour ce batch - Corrigé pour inclure la ville
-      var prompt = "Pour chaque adresse ci-dessous, identifie l'état/province (suivi du code pays entre parenthèses, ex: North Carolina (US)) ET corrige/normalise le nom de la ville. Réponds UNIQUEMENT avec un tableau JSON où chaque élément contient {\"index\": <numéro>, \"state\": \"<état (CODE)>\", \"city\": \"<ville corrigée>\"}.\n\nAdresses:\n" + JSON.stringify(batch.map(function(a, i) { 
+      var prompt = "Pour chaque adresse ci-dessous, identifie l'état/province (suivi du code pays entre parenthèses, ex: North Carolina (US)) ET corrige/normalise le nom de la ville. \n" +
+                   "Indique le nom du pays en FRANÇAIS si possible. \n" +
+                   "Réponds UNIQUEMENT avec un tableau JSON où chaque élément contient {\"index\": <numéro>, \"state\": \"<état (CODE) (PAYS)>\", \"city\": \"<ville corrigée>\"}.\n\n" +
+                   "Adresses:\n" + JSON.stringify(batch.map(function(a, i) { 
         return {index: i, street: a.street, street2: a.street2, zip: a.zip, city: a.city, country: a.country}; 
       }));
       
@@ -768,7 +772,8 @@ function enrichment_populateCountries() {
     
     // Récupérer le mapping des champs
     var mappings = readSmartTable('ODOO_FIELDS');
-    var sheetMappings = mappings.filter(function(m) { return m['Onglet'] === sheetName; });
+    var sheetId = activeSheet.getSheetId().toString();
+    var sheetMappings = mappings.filter(function(m) { return String(m['ID Onglet']) === sheetId; });
     
     if (sheetMappings.length === 0) {
       return { success: false, message: 'Vous devez d\'abord mapper les champs disponibles avec ceux d\'Odoo via le menu "Odoo RDD > Traitement des données > Mapping".' };
@@ -869,8 +874,10 @@ function enrichment_populateCountries() {
       
       var batch = addresses.slice(b, b + BATCH_SIZE);
       
-      // Préparer le prompt pour ce batch - Corrigé pour inclure la ville
-      var prompt = "Pour chaque adresse ci-dessous, identifie le pays en français ET corrige/normalise le nom de la ville. Réponds UNIQUEMENT avec un tableau JSON où chaque élément contient {\"index\": <numéro>, \"country\": \"<pays en français>\", \"city\": \"<ville corrigée>\"}.\n\nAdresses:\n" + JSON.stringify(batch.map(function(a, i) { 
+      // Préparer le prompt pour ce batch
+      var prompt = "Pour chaque adresse ci-dessous, identifie le pays en FRANÇAIS (utilisez le nom officiel français) ET corrige/normalise le nom de la ville. \n" +
+                   "Réponds UNIQUEMENT avec un tableau JSON où chaque élément contient {\"index\": <numéro>, \"country\": \"<pays en français>\", \"city\": \"<ville corrigée>\"}.\n\n" +
+                   "Adresses:\n" + JSON.stringify(batch.map(function(a, i) { 
         return {index: i, street: a.street, street2: a.street2, zip: a.zip, city: a.city}; 
       }));
       
@@ -915,15 +922,25 @@ function enrichment_populateCountries() {
         continue;
       }
       
+      // Charger les codes pays pour le mapping
+      var countryCodes = _getPaysData();
+
       // Peupler les matrices avec les résultats du batch
       for (var i = 0; i < results.length; i++) {
         var resData = results[i];
         if (resData.index >= 0 && resData.index < batch.length) {
           var actualRow = batch[resData.index].row;
           
-          // Mise à jour Pays
+          // Mise à jour Pays avec recherche du nom français exact
           if (resData.country) {
-            countryValues[actualRow - 2][0] = resData.country;
+            var countrySearch = resData.country.trim().toLowerCase();
+            var countryMatch = countryCodes.find(function(c) {
+              return (c['Nom français'] || '').toLowerCase() === countrySearch || 
+                     (c['Nom d\'origine'] || '').toLowerCase() === countrySearch ||
+                     (c['Code du pays'] || '').toLowerCase() === countrySearch;
+            });
+            
+            countryValues[actualRow - 2][0] = countryMatch ? countryMatch['Nom français'] : resData.country;
           }
           
           // Mise à jour Ville (si la colonne existe)
@@ -961,10 +978,11 @@ function enrichment_formatPhones() {
     
     // Récupérer le mapping pour trouver la colonne téléphone
     var mappings = readSmartTable('ODOO_FIELDS');
-    var sheetMappings = mappings.filter(function(m) { return m['Onglet'] === sheetName; });
+    var sheetId = activeSheet.getSheetId().toString();
+    var sheetMappings = mappings.filter(function(m) { return String(m['ID Onglet']) === sheetId; });
     
     if (sheetMappings.length === 0) {
-      return { success: false, message: 'Vous devez d\'abord mapper les champs disponibles avec ceux d\'Odoo.' };
+      return { success: false, message: 'Vous devez d\'abord mapper les champs disponibles avec ceux d\'Odoo (Onglet: "' + sheetName + '").' };
     }
     
     var headers = activeSheet.getRange(1, 1, 1, activeSheet.getLastColumn()).getValues()[0];
@@ -991,7 +1009,7 @@ function enrichment_formatPhones() {
     }
     
     // Charger la table des codes pays
-    var countryCodes = readSmartTable('TAB_PAYS');
+    var countryCodes = _getPaysData();
     
     var lastRow = activeSheet.getLastRow();
     if (lastRow < 2) {
@@ -1078,16 +1096,29 @@ function enrichment_formatPhones() {
         }
         
         // 4. Formatage standard pour les numéros de 9 chiffres ou plus
-        var country = countryValues ? countryValues[i][0].toString().trim() : 'France';
+        var countryRaw = countryValues ? countryValues[i][0].toString().trim() : 'France';
         
-        // Trouver l'indicatif du pays
+        // Trouver l'indicatif du pays et le nom français
         var countryData = countryCodes.find(function(item) {
-          return item['Code du pays'] === country || item['Nom du pays'] === country;
+          var code = (item['Code du pays'] || '').toString().toLowerCase();
+          var orig = (item['Nom d\'origine'] || '').toString().toLowerCase();
+          var fr = (item['Nom français'] || '').toString().toLowerCase();
+          var search = countryRaw.toLowerCase();
+          return code === search || orig === search || fr === search;
         });
         
         var countryCode = '33';
         if (countryData) {
-          countryCode = countryData['Indice'] || (isNaN(parseInt(countryData['Code du pays'])) ? '33' : countryData['Code du pays']);
+          countryCode = (countryData['Indicatif Téléphonique'] || '').toString().replace(/\D/g, '') || '33';
+          
+          // Mise à jour du pays vers le nom français si nécessaire
+          var frenchName = countryData['Nom français'];
+          if (frenchName && countryValues[i][0] !== frenchName) {
+            countryValues[i][0] = frenchName;
+            colUpdated = true; // On marquera que la colonne pays doit être mise à jour
+            var countryRange = activeSheet.getRange(i + 2, countryCol);
+            countryRange.setValue(frenchName);
+          }
         }
         
         // Cas CC + 0 + reste (ex: 320487...)

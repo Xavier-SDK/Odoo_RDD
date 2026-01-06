@@ -214,3 +214,98 @@ function _iban_validateBBAN(cc, bban) {
       return true;
   }
 }
+
+// --- COUNTRY (PAYS) SERVICE ---
+
+/**
+ * Récupère les données de l'onglet "Pays" via la plage nommée DONNEES_PAYS.
+ * Utilisée par les fonctions d'enrichissement (batch processing).
+ * @return {Array<Object>}
+ */
+function _getPaysData() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const namedRange = ss.getRangeByName('DONNEES_PAYS');
+  
+  if (!namedRange) {
+    throw new Error("Plage nommée 'DONNEES_PAYS' introuvable. Créez une plage nommée pointant vers Pays!A2:E");
+  }
+  
+  const values = namedRange.getValues();
+  if (!values || values.length === 0) return [];
+  
+  return values.map(row => ({
+    'ID Externe': row[0],
+    'Code du pays': row[1] ? row[1].toString().toUpperCase().trim() : '',
+    'Nom d\'origine': row[2],
+    'Nom français': row[3],
+    'Indicatif Téléphonique': row[4] ? row[4].toString().replace(/\D/g, '') : ''
+  }));
+}
+
+/**
+ * Retourne le nom français d'un pays à partir de son code.
+ * Version pour utilisation dans la bibliothèque (enrichissement).
+ * @param {string} code - Code pays (ex: "FR")
+ * @return {string}
+ */
+function PAYS_BY_CODE(code) {
+  try {
+    if (!code) return "";
+    const lookup = code.toString().trim().toUpperCase();
+    const countries = _getPaysData();
+    const match = countries.find(c => c['Code du pays'] === lookup);
+    return match ? match['Nom français'] : "";
+  } catch (e) {
+    return "#ERR: " + e.message;
+  }
+}
+
+/**
+ * Formate un numéro de téléphone selon l'indicatif du pays.
+ * Version pour utilisation dans la bibliothèque (enrichissement).
+ * @param {string} number - Numéro de téléphone
+ * @param {string} country - Nom (FR/Orig) ou code du pays
+ * @return {string}
+ */
+function TEL(number, country) {
+  try {
+    if (!number) return "";
+    
+    const phone = number.toString().trim();
+    if (!phone || /[a-zA-Z]/.test(phone)) return "";
+    
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (cleanPhone.length === 4) return phone;
+    if (cleanPhone.length < 4 || (cleanPhone.length >= 5 && cleanPhone.length <= 8)) return "";
+    
+    const countries = _getPaysData();
+    const countrySearch = country ? country.toString().trim().toLowerCase() : 'france';
+    
+    const countryData = countries.find(c => 
+      c['Code du pays'].toLowerCase() === countrySearch || 
+      (c['Nom français'] || '').toLowerCase() === countrySearch || 
+      (c['Nom d\'origine'] || '').toLowerCase() === countrySearch
+    );
+    
+    let dialCode = '33';
+    if (countryData && countryData['Indicatif Téléphonique']) {
+      dialCode = countryData['Indicatif Téléphonique'];
+    }
+    
+    let formatted = cleanPhone;
+    if (formatted.indexOf(dialCode) === 0 && formatted.charAt(dialCode.length) === '0' && formatted.length > dialCode.length + 1) {
+      formatted = dialCode + formatted.substring(dialCode.length + 1);
+    } else {
+      formatted = formatted.replace(/^0/, '');
+    }
+    
+    if (formatted.indexOf(dialCode) !== 0) {
+      formatted = dialCode + formatted;
+    }
+    
+    return '+' + formatted;
+  } catch (e) {
+    return "#ERR: " + e.message;
+  }
+}
+

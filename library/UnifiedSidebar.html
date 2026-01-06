@@ -40,7 +40,9 @@
         #config-view,
         #mapping-view,
         #formatting-view,
-        #enrichment-view {
+        #enrichment-view,
+        #export-view,
+        #import-view {
             display: none;
         }
 
@@ -271,6 +273,13 @@
 
 <body>
     <div id="main-content">
+        <div id="init-loading" style="text-align: center; padding: 20px;">
+            <i class="fa fa-spinner fa-spin" style="font-size: 24px; color: #1a73e8;"></i>
+            <div style="margin-top: 10px; color: #5f6368;">Chargement de l'interface...</div>
+        </div>
+        <div id="init-error" class="status error" style="display: none; margin-bottom: 20px;"></div>
+
+
         <!-- Vue Configuration -->
         <div id="config-view">
             <div class="info-text" id="config-info"
@@ -356,6 +365,12 @@
         </div>
 
         <!-- Vue Enrichissement -->
+        <!-- Vue Formatage (Placeholder) -->
+        <div id="formatting-view">
+            <h3>Formatage</h3>
+            <div class="info-text">Options de formatage à venir.</div>
+        </div>
+
         <div id="enrichment-view">
             <h3>💾 Sauvegarde</h3>
             <button type="button" id="saveBackupBtn">Sauvegarder l'onglet</button>
@@ -460,14 +475,34 @@
         };
 
         // === INITIALISATION ===
+        // === INITIALISATION ===
         window.onload = function () {
-            setupEventListeners();
-            google.script.run
-                .withSuccessHandler(initializeSidebar)
-                .withFailureHandler(function (err) {
-                    showError('Erreur initialisation: ' + err.message);
-                })
-                .getSidebarMode();
+            try {
+                setupEventListeners();
+
+                if (typeof google === 'undefined') {
+                    throw new Error("Objet 'google' non défini.");
+                }
+
+                google.script.run
+                    .withSuccessHandler(function (data) {
+                        initializeSidebar(data);
+                    })
+                    .withFailureHandler(function (err) {
+                        console.error('Error in getSidebarMode:', err);
+                        document.getElementById('init-loading').style.display = 'none';
+                        var errDiv = document.getElementById('init-error');
+                        errDiv.textContent = 'Erreur initialisation: ' + err.message;
+                        errDiv.style.display = 'block';
+                    })
+                    .getSidebarMode();
+            } catch (e) {
+                console.error('Window onload error:', e);
+                document.getElementById('init-loading').style.display = 'none';
+                var errDiv = document.getElementById('init-error');
+                errDiv.textContent = 'Exception au chargement: ' + e.message;
+                errDiv.style.display = 'block';
+            }
         };
 
         function setupEventListeners() {
@@ -492,6 +527,7 @@
             safeAddListener('restoreBackupBtn', 'click', handleRestoreBackup);
             safeAddListener('populateCountriesBtn', 'click', handlePopulateCountries);
             safeAddListener('formatPhonesBtn', 'click', handleFormatPhones);
+            safeAddListener('populateStatesBtn', 'click', handlePopulateStates); // Added missing listener
 
             // Export
             safeAddListener('stop-export-btn', 'click', stopExportProcess);
@@ -501,6 +537,15 @@
         }
 
         function initializeSidebar(data) {
+            console.log('Sidebar initializing with mode:', data.mode);
+            document.getElementById('init-loading').style.display = 'none';
+
+            if (!data || !data.mode) {
+                document.getElementById('init-error').textContent = "Mode non défini reçu du serveur.";
+                document.getElementById('init-error').style.display = 'block';
+                return;
+            }
+
             currentMode = data.mode;
 
             if (currentMode === 'CONFIG') {
@@ -518,20 +563,27 @@
             }
         }
 
+        // === FONCTIONS DE GESTION DES VUES ===
+        function hideAllViews() {
+            var views = ['config-view', 'mapping-view', 'formatting-view', 'enrichment-view', 'export-view', 'import-view'];
+            views.forEach(function (id) {
+                var el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
+        }
+
         // === VUE ENRICHISSEMENT ===
         function initEnrichmentView(data) {
-            document.getElementById('config-view').style.display = 'none';
-            document.getElementById('mapping-view').style.display = 'none';
-            document.getElementById('formatting-view').style.display = 'none';
+            hideAllViews();
             document.getElementById('enrichment-view').style.display = 'block';
-
             checkBackupStatus();
         }
 
         function checkBackupStatus() {
             google.script.run
                 .withSuccessHandler(function (hasBackup) {
-                    document.getElementById('restoreBackupBtn').disabled = !hasBackup;
+                    var btn = document.getElementById('restoreBackupBtn');
+                    if (btn) btn.disabled = !hasBackup;
                 })
                 .withFailureHandler(function (err) {
                     console.error('Error checking backup status:', err);
@@ -546,7 +598,7 @@
                     setEnrichmentLoading(false);
                     showEnrichmentStatus(result.message, result.success ? 'success' : 'error');
                     if (result.success) {
-                        document.getElementById('restoreBackupBtn').disabled = false;
+                        checkBackupStatus(); // Re-check to enable restore button
                     }
                 })
                 .withFailureHandler(function (err) {
@@ -558,7 +610,6 @@
 
         function handleRestoreBackup(e) {
             if (e) e.preventDefault();
-
             setEnrichmentLoading(true);
             google.script.run
                 .withSuccessHandler(function (result) {
@@ -573,43 +624,37 @@
         }
 
         function handlePopulateStates() {
-            showConsole('Enrichissement des états & villes');
+            showConsole('Enrichissement des états');
             startPolling();
             setEnrichmentLoading(true);
             google.script.run
                 .withSuccessHandler(function (result) {
                     setEnrichmentLoading(false);
-                    var elapsed = ((Date.now() - consoleStartTime) / 1000).toFixed(1);
-                    updateProgressBar(100, 'Terminé en ' + elapsed + 's');
+                    hideConsole(1000);
                     showEnrichmentStatus(result.message, result.success ? 'success' : 'error');
-                    hideConsole(5000);
                 })
                 .withFailureHandler(function (err) {
                     setEnrichmentLoading(false);
-                    updateProgressBar(0, 'Erreur');
+                    hideConsole(0);
                     showEnrichmentStatus('Erreur: ' + err.message, 'error');
-                    stopPolling();
                 })
                 .enrichment_populateStates();
         }
 
         function handlePopulateCountries() {
-            showConsole('Enrichissement des pays & villes');
+            showConsole('Enrichissement des pays');
             startPolling();
             setEnrichmentLoading(true);
             google.script.run
                 .withSuccessHandler(function (result) {
                     setEnrichmentLoading(false);
-                    var elapsed = ((Date.now() - consoleStartTime) / 1000).toFixed(1);
-                    updateProgressBar(100, 'Terminé en ' + elapsed + 's');
+                    hideConsole(1000);
                     showEnrichmentStatus(result.message, result.success ? 'success' : 'error');
-                    hideConsole(5000);
                 })
                 .withFailureHandler(function (err) {
                     setEnrichmentLoading(false);
-                    updateProgressBar(0, 'Erreur');
+                    hideConsole(0);
                     showEnrichmentStatus('Erreur: ' + err.message, 'error');
-                    stopPolling();
                 })
                 .enrichment_populateCountries();
         }
@@ -621,56 +666,52 @@
             google.script.run
                 .withSuccessHandler(function (result) {
                     setEnrichmentLoading(false);
-                    var elapsed = ((Date.now() - consoleStartTime) / 1000).toFixed(1);
-                    updateProgressBar(100, 'Terminé en ' + elapsed + 's');
+                    hideConsole(1000);
                     showEnrichmentStatus(result.message, result.success ? 'success' : 'error');
-                    hideConsole(5000);
                 })
                 .withFailureHandler(function (err) {
                     setEnrichmentLoading(false);
-                    updateProgressBar(0, 'Erreur');
+                    hideConsole(0);
                     showEnrichmentStatus('Erreur: ' + err.message, 'error');
-                    stopPolling();
                 })
                 .enrichment_formatPhones();
         }
 
         function setEnrichmentLoading(isLoading) {
-            document.getElementById('enrichment-loading').style.display = isLoading ? 'block' : 'none';
-            var buttons = document.getElementById('enrichment-view').querySelectorAll('button');
+            // Disable buttons during loading
+            var buttons = document.querySelectorAll('#enrichment-view button');
             buttons.forEach(function (btn) {
                 btn.disabled = isLoading;
             });
-            if (!isLoading) checkBackupStatus();
+
+            // Show/hide loading indicator if exists
+            var loadingDiv = document.getElementById('enrichment-loading');
+            if (loadingDiv) loadingDiv.style.display = isLoading ? 'block' : 'none';
         }
 
-        function showEnrichmentStatus(message, type) {
-            var status = document.getElementById('enrichment-status');
-            status.className = 'status ' + type;
-            status.textContent = message;
-            status.style.display = 'block';
-
-            if (type === 'success') {
-                setTimeout(function () {
-                    status.style.display = 'none';
-                }, 5000);
+        function showEnrichmentStatus(msg, type) {
+            var el = document.getElementById('enrichment-status');
+            if (el) {
+                el.textContent = msg;
+                el.className = 'status ' + type;
+                el.style.display = 'block';
+                setTimeout(function () { el.style.display = 'none'; }, 5000);
             }
         }
 
         // === VUE FORMATTAGE ===
         function initFormattingView(data) {
-            document.getElementById('config-view').style.display = 'none';
-            document.getElementById('mapping-view').style.display = 'none';
+            hideAllViews();
             document.getElementById('formatting-view').style.display = 'block';
-            document.getElementById('enrichment-view').style.display = 'none';
         }
 
         // === VUE CONFIGURATION ===
         function initConfigView(data) {
+            hideAllViews();
             document.getElementById('config-view').style.display = 'block';
-            document.getElementById('mapping-view').style.display = 'none';
 
             if (data.config) {
+                // Remplissage des champs
                 document.getElementById('odooUrl').value = data.config.url || '';
                 document.getElementById('odooDatabase').value = data.config.database || '';
                 document.getElementById('odooUser').value = data.config.user || '';
@@ -693,7 +734,6 @@
                 }
             }
         }
-
 
         function handleConfigSubmit(e) {
             e.preventDefault();
@@ -757,8 +797,11 @@
 
         // === VUE MAPPING ===
         function initMappingView(data) {
-            document.getElementById('config-view').style.display = 'none';
-            document.getElementById('mapping-view').style.display = 'block';
+            hideAllViews();
+            var el = document.getElementById('mapping-view');
+            if (el) {
+                el.style.display = 'block';
+            }
 
             // Charger données initiales
             google.script.run
@@ -775,7 +818,7 @@
             state.currentModel = data.currentModel;
             state.columns = data.columns;
             state.existingMappings = data.existingMappings || {};
-            state.unmappedHeaders = data.unmappedHeaders || [];  // Nouveauté
+            state.unmappedHeaders = data.unmappedHeaders || [];
 
             var sheetSelect = document.getElementById('sheet-select');
             sheetSelect.innerHTML = '';
@@ -832,7 +875,6 @@
                     renderColumnMappings();
                     hideStatus();
 
-                    // Auto-AI : Si des entêtes ne sont pas mappés, lancer suggestions automatiquement
                     if (state.unmappedHeaders && state.unmappedHeaders.length > 0) {
                         console.log('[AUTO-AI] Triggering for ' + state.unmappedHeaders.length + ' unmapped headers');
                         triggerAutoAiSuggestions();
@@ -848,34 +890,17 @@
             }
         }
 
-        // Auto-AI : Suggestions silencieuses pour entêtes non mappés
         function triggerAutoAiSuggestions() {
-            console.log('[AUTO-AI] Starting auto-suggestions...');
-            console.log('[AUTO-AI] Unmapped headers:', state.unmappedHeaders);
-
-            if (!state.unmappedHeaders || state.unmappedHeaders.length === 0) {
-                console.log('[AUTO-AI] No unmapped headers, skipping');
-                return;
-            }
-
-            if (!state.fields || state.fields.length === 0) {
-                console.log('[AUTO-AI] No fields loaded, skipping');
-                return;
-            }
+            if (!state.unmappedHeaders || state.unmappedHeaders.length === 0) return;
+            if (!state.fields || state.fields.length === 0) return;
 
             showStatus('✨ Suggestions IA en cours...', 'info');
 
             google.script.run
                 .withSuccessHandler(function (suggestions) {
-                    console.log('[AUTO-AI] Received suggestions:', suggestions);
                     hideStatus();
+                    if (!suggestions || Object.keys(suggestions).length === 0) return;
 
-                    if (!suggestions || Object.keys(suggestions).length === 0) {
-                        console.log('[AUTO-AI] No suggestions returned');
-                        return;
-                    }
-
-                    // Appliquer les suggestions aux champs non mappés
                     var selects = document.querySelectorAll('.field-select');
                     var count = 0;
                     selects.forEach(function (select) {
@@ -886,13 +911,9 @@
                         }
                     });
 
-                    console.log('[AUTO-AI] Applied ' + count + ' suggestions');
-
                     if (count > 0) {
                         showStatus('✨ ' + count + ' suggestion(s) appliquée(s)', 'success');
                         setTimeout(hideStatus, 2000);
-
-                        // Auto-save après application des suggestions
                         autoSaveMapping();
                     }
                 })
@@ -904,66 +925,24 @@
         }
 
         function loadAiSuggestions() {
-            console.log('[CLIENT] ========== loadAiSuggestions START ==========');
-            console.log('[CLIENT] Button clicked');
-
-            // Log current state
-            console.log('[CLIENT] State inspection:');
-            console.log('[CLIENT] - sheetName:', state.sheetName);
-            console.log('[CLIENT] - currentModel:', state.currentModel);
-            console.log('[CLIENT] - columns:', state.columns);
-            console.log('[CLIENT] - columns length:', state.columns ? state.columns.length : 'NULL');
-            console.log('[CLIENT] - fields:', state.fields);
-            console.log('[CLIENT] - fields length:', state.fields ? state.fields.length : 'NULL');
-
-            // Validation détaillée
             if (!state.currentModel) {
-                console.error('[CLIENT] ABORT: No model selected');
                 showError('Veuillez d\'abord sélectionner un modèle Odoo.');
                 return;
             }
 
-            if (!state.fields || state.fields.length === 0) {
-                console.error('[CLIENT] ABORT: No fields loaded');
-                console.log('[CLIENT] Attempting to reload fields...');
-                showError('Les champs Odoo ne sont pas chargés. Rechargement en cours...');
-                loadModelFields(state.currentModel, false);
-                return;
-            }
-
-            if (!state.columns || state.columns.length === 0) {
-                console.error('[CLIENT] ABORT: No columns found in sheet');
-                showError('Aucune colonne trouvée dans l\'onglet sélectionné.');
-                return;
-            }
-
-            console.log('[CLIENT] Validation passed');
-            console.log('[CLIENT] Will send to server:');
-            console.log('[CLIENT] - Columns:', JSON.stringify(state.columns));
-            console.log('[CLIENT] - Fields count:', state.fields.length);
-
             showStatus('Analyse IA en cours...', 'info');
             document.getElementById('ai-btn').disabled = true;
 
-            console.log('[CLIENT] Calling server getAiMappingSuggestions...');
-            var startTime = new Date().getTime();
-
             google.script.run
                 .withSuccessHandler(function (suggestions) {
-                    var duration = (new Date().getTime() - startTime) / 1000;
-                    console.log('[CLIENT] ========== SUCCESS after ' + duration + 's ==========');
-                    console.log('[CLIENT] Suggestions received:', suggestions);
-
                     hideStatus();
                     document.getElementById('ai-btn').disabled = false;
 
                     if (!suggestions || Object.keys(suggestions).length === 0) {
-                        console.log('[CLIENT] No suggestions found');
                         showError('Aucune suggestion pertinente trouvée.');
                         return;
                     }
 
-                    // Appliquer les suggestions aux champs non mappés
                     var selects = document.querySelectorAll('.field-select');
                     var count = 0;
                     selects.forEach(function (select) {
@@ -974,30 +953,18 @@
                         }
                     });
 
-                    console.log('[CLIENT] Applied ' + count + ' suggestions');
                     showStatus(count + ' suggestions appliquées.', 'success');
                     setTimeout(hideStatus, 3000);
                 })
                 .withFailureHandler(function (err) {
-                    var duration = (new Date().getTime() - startTime) / 1000;
-                    console.error('[CLIENT] ========== ERROR after ' + duration + 's ==========');
-                    console.error('[CLIENT] Error object:', err);
-                    console.error('[CLIENT] Error message:', err.message);
-                    console.error('[CLIENT] Error stack:', err.stack);
-
                     hideStatus();
                     showError('Erreur IA: ' + (err.message || 'Erreur inconnue'));
                     document.getElementById('ai-btn').disabled = false;
                 })
                 .getAiMappingSuggestions(state.columns, state.fields);
-
-            console.log('[CLIENT] Request sent to server, waiting for response...');
         }
 
-        // Auto-save : Sauvegarde silencieuse après chaque modification
         function autoSaveMapping() {
-            console.log('[AUTO-SAVE] Triggering silent save...');
-
             var columnMappings = {};
             var selects = document.querySelectorAll('.field-select');
             selects.forEach(function (select) {
@@ -1007,12 +974,10 @@
 
             google.script.run
                 .withSuccessHandler(function (result) {
-                    console.log('[AUTO-SAVE] Saved successfully');
                     showStatus('✓ Enregistré', 'success');
                     setTimeout(hideStatus, 1500);
                 })
                 .withFailureHandler(function (err) {
-                    console.error('[AUTO-SAVE] Error:', err);
                     showError('Erreur sauvegarde: ' + err.message);
                 })
                 .saveContextualMapping(state.sheetName, state.currentModel, columnMappings);
@@ -1047,14 +1012,10 @@
                 select.appendChild(empty);
 
                 var selectedFieldId = state.existingMappings[colName];
-                // Si la valeur est undefined (pas encore mappé), on cherche un match.
-                // Si la valeur est "" (sauvegardé comme exclusion), on la garde.
                 if (selectedFieldId === undefined || selectedFieldId === null) {
                     selectedFieldId = findBestMatch(colName, state.fields);
                 }
 
-                // Si on a un mapping existant mais qu'il n'est pas dans la liste des champs (ex: erreur Odoo)
-                // On l'ajoute quand même pour que l'utilisateur voit l'association actuelle
                 if (selectedFieldId && !state.fields.find(f => f.id === selectedFieldId)) {
                     var opt = document.createElement('option');
                     opt.value = selectedFieldId;
@@ -1071,12 +1032,7 @@
                     select.appendChild(opt);
                 });
 
-                // Auto-save listener : sauvegarder automatiquement à chaque changement
-                select.addEventListener('change', function () {
-                    console.log('[FIELD-CHANGE] Field changed for: ' + colName);
-                    autoSaveMapping();
-                });
-
+                select.addEventListener('change', autoSaveMapping);
                 row.appendChild(select);
                 container.appendChild(row);
             });
@@ -1186,9 +1142,11 @@
         // === UTILITAIRES ===
         function showStatus(msg, type) {
             var status = document.getElementById('mapping-status');
-            status.className = 'status ' + type;
-            status.textContent = msg;
-            status.style.display = 'block';
+            if (status) {
+                status.className = 'status ' + type;
+                status.textContent = msg;
+                status.style.display = 'block';
+            }
         }
 
         function showError(msg) {
@@ -1196,12 +1154,38 @@
         }
 
         function hideStatus() {
-            document.getElementById('mapping-status').style.display = 'none';
+            var status = document.getElementById('mapping-status');
+            if (status) status.style.display = 'none';
         }
 
         // === GESTION DE LA CONSOLE ODOO ===
         var pollingInterval = null;
         var consoleStartTime = null;
+
+        function startPolling() {
+            if (pollingInterval) clearInterval(pollingInterval);
+            pollingInterval = setInterval(pollProgress, 1000);
+        }
+
+        function stopPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+        }
+
+        function pollProgress() {
+            google.script.run
+                .withSuccessHandler(function (progress) {
+                    if (progress) {
+                        updateProgressBar(progress.percent, progress.status);
+                    }
+                })
+                .withFailureHandler(function (err) {
+                    console.error('Polling error:', err);
+                })
+                .getProgress();
+        }
 
         function showConsole(title) {
             var consoleEl = document.getElementById('odoo-console');
@@ -1213,16 +1197,22 @@
             consoleEl.style.display = 'block';
             consoleStartTime = Date.now();
 
-            // Masquer les messages de statut classiques pour ne pas surcharger
-            document.getElementById('enrichment-status').style.display = 'none';
+            // Masquer les messages de statut classiques
+            var enrStatus = document.getElementById('enrichment-status');
+            if (enrStatus) enrStatus.style.display = 'none';
         }
 
         function hideConsole(delay) {
-            setTimeout(function () {
-                var consoleEl = document.getElementById('odoo-console');
+            stopPolling();
+            var consoleEl = document.getElementById('odoo-console');
+
+            if (delay && delay > 0) {
+                setTimeout(function () {
+                    if (consoleEl) consoleEl.style.display = 'none';
+                }, delay);
+            } else {
                 if (consoleEl) consoleEl.style.display = 'none';
-                stopPolling();
-            }, delay || 5000);
+            }
         }
 
         function updateProgressBar(percent, statusText) {
@@ -1240,226 +1230,108 @@
             totalRows: 0,
             processedRows: 0,
             batchSize: 50,
-            hasErrors: false
+            stopRequested: false
         };
 
-        function initExportView() {
-            document.getElementById('config-view').style.display = 'none';
-            document.getElementById('mapping-view').style.display = 'none';
-            document.getElementById('enrichment-view').style.display = 'none';
-            document.getElementById('export-view').style.display = 'block';
-
-            google.script.run
-                .withSuccessHandler(function (result) {
-                    if (result.success) {
-                        document.getElementById('export-sheet-name').textContent = result.sheetName;
-                        document.getElementById('export-model-name').textContent = result.modelName;
-                        document.getElementById('export-total-rows').textContent = result.totalRows;
-
-                        exportState.totalRows = result.totalRows;
-
-                        // Lancement automatique
-                        if (result.totalRows > 0) {
-                            startExportProcess();
-                        } else {
-                            logExport("⚠️ Aucune donnée à exporter.");
-                        }
-                    } else {
-                        document.getElementById('export-error-msg').textContent = result.message;
-                        document.getElementById('export-error-msg').style.display = 'block';
-                    }
-                })
-                .withFailureHandler(function (err) {
-                    document.getElementById('export-error-msg').textContent = "Erreur: " + err.message;
-                    document.getElementById('export-error-msg').style.display = 'block';
-                })
-                .prepareForExport();
-        }
-
-        function logExport(msg, isError) {
-            var consoleDiv = document.getElementById('export-logs');
-            var line = document.createElement('div');
-            line.textContent = '> ' + msg;
-            if (isError) line.style.color = 'red';
-            consoleDiv.appendChild(line);
-            consoleDiv.scrollTop = consoleDiv.scrollHeight;
-        }
-
         function startExportProcess() {
-            if (exportState.totalRows === 0) {
-                return;
-            }
-
-            var stopBtn = document.getElementById('stop-export-btn');
-            if (stopBtn) {
-                stopBtn.style.display = 'block';
-                stopBtn.disabled = false;
-                stopBtn.onclick = stopExportProcess;
-            }
-
-            document.getElementById('export-progress-area').style.display = 'block';
-            document.getElementById('export-logs').innerHTML = ''; // Clear logs
-
+            exportState.stopRequested = false;
             exportState.processedRows = 0;
-            exportState.stopRequested = false; // Reset stop flag
 
-            updateExportProgress(0, 'Démarrage...');
+            document.getElementById('stop-export-btn').style.display = 'block';
+            document.getElementById('stop-export-btn').disabled = false;
+            document.getElementById('export-progress-area').style.display = 'block';
+            document.getElementById('export-logs').innerHTML = '';
 
-            processNextBatch(0);
+            logExport('🚀 Démarrage de l\'export...');
+            processNextExportBatch(0);
         }
 
         function stopExportProcess() {
             exportState.stopRequested = true;
             document.getElementById('stop-export-btn').disabled = true;
-            document.getElementById('stop-export-btn').textContent = "Arrêt en cours...";
             logExport("🛑 Arrêt demandé par l'utilisateur...", true);
         }
 
-        function processNextBatch(startIndex) {
-            // Check stop
+        function processNextExportBatch(offset) {
             if (exportState.stopRequested) {
-                updateExportProgress(Math.round((startIndex / exportState.totalRows) * 100), 'Arrêté par utilisateur');
-                logExport('❌ Export interrompu par l\'utilisateur.');
+                logExport('❌ Export interrompu.');
                 resetExportButtons();
                 return;
             }
 
-            if (startIndex >= exportState.totalRows) {
-                updateExportProgress(100, 'Export terminé !');
-                logExport('✅ Terminé. ' + exportState.totalRows + ' lignes traitées.');
-                resetExportButtons();
-                return;
-            }
-
+            var sheetName = document.getElementById('export-sheet-name').textContent;
+            var modelName = document.getElementById('export-model-name').textContent;
             var batchSize = exportState.batchSize;
-            var endIndex = Math.min(startIndex + batchSize, exportState.totalRows);
-            var indices = [];
-            for (var i = startIndex; i < endIndex; i++) indices.push(i);
 
             updateExportProgress(
-                Math.round((startIndex / exportState.totalRows) * 100),
-                'Traitement lot ' + (startIndex + 1) + '-' + endIndex + '...'
+                Math.round((offset / exportState.totalRows) * 100),
+                'Export offset ' + offset + '...'
             );
-
-            // Appeler le serveur
-            var sheetName = document.getElementById('export-sheet-name').textContent;
 
             google.script.run
                 .withSuccessHandler(function (result) {
-                    // Check stop flag from server (error trigger) or global stop
-                    if (exportState.stopRequested) {
-                        logExport('❌ Arrêt confirmé.', true);
+                    if (exportState.stopRequested || result.error) {
+                        logExport('❌ ' + (result.error || 'Arrêté par l\'utilisateur'), true);
                         resetExportButtons();
                         return;
                     }
 
-                    if (result.error) {
-                        logExport('⛔ Erreur globale: ' + result.error, true);
-                        logExport('💡 Action: Vérifiez les données et réessayez.', false);
-                        // Arrêt sur erreur globale
+                    if (result.logs) {
+                        result.logs.forEach(function (log) {
+                            logExport(log);
+                        });
+                    }
+
+                    if (result.createdCount > 0 || result.updatedCount > 0) {
+                        logExport('📦 Batch ' + offset + ': ' + result.createdCount + ' créé(s), ' + result.updatedCount + ' à jour');
+                    }
+
+                    if (!result.hasMore) {
+                        logExport('✅ Export terminé avec succès !');
+                        updateExportProgress(100, 'Export terminé');
                         resetExportButtons();
                         return;
-                    } else {
-                        // Display operation logs first
-                        if (result.logs && result.logs.length > 0) {
-                            result.logs.forEach(function (log) {
-                                logExport(log, false);
-                            });
-                        }
-
-                        // Log summary for this batch
-                        if (result.createdCount > 0 || result.updatedCount > 0) {
-                            var summary = '📦 Lot ' + (Math.floor(startIndex / exportState.batchSize) + 1) + ': ';
-                            if (result.createdCount > 0) summary += result.createdCount + ' création(s)';
-                            if (result.updatedCount > 0) {
-                                if (result.createdCount > 0) summary += ', ';
-                                summary += result.updatedCount + ' mise(s) à jour';
-                            }
-                            logExport(summary);
-                        }
-
-                        // Log individual errors with details
-                        if (result.errors && result.errors.length > 0) {
-                            logExport('⚠️ Erreurs détectées:', true);
-                            result.errors.forEach(function (e) {
-                                logExport('  • ' + e, true);
-                            });
-                        }
-
-                        // Arrêt automatique demandé par le serveur (pour erreur bloquante dans le batch)
-                        if (result.stop) {
-                            logExport('', false);
-                            logExport('🛑 Export arrêté automatiquement suite à une erreur.', true);
-                            logExport('💡 Corrigez les données ci-dessus puis relancez l\'export.', false);
-                            logExport('', false);
-                            updateExportProgress(Math.round((endIndex / exportState.totalRows) * 100), 'Arrêté sur erreur');
-                            resetExportButtons();
-                            return;
-                        }
                     }
-                    exportState.processedRows += indices.length;
-                    processNextBatch(endIndex);
+
+                    processNextExportBatch(offset + batchSize);
                 })
                 .withFailureHandler(function (err) {
                     logExport('🔥 Erreur système: ' + err.message, true);
-                    logExport('💡 Contactez le support si le problème persiste.', false);
                     resetExportButtons();
                 })
-                .processExportBatch(sheetName, indices);
+                .processExportBatch(sheetName, modelName, offset, batchSize);
+        }
+
+        function updateExportProgress(percent, statusText) {
+            document.getElementById('export-progress-bar').style.width = percent + '%';
+            document.getElementById('export-progress-p').textContent = Math.round(percent) + '%';
+            document.getElementById('export-status-text').textContent = statusText;
+        }
+
+        function logExport(message, isError) {
+            var logsDiv = document.getElementById('export-logs');
+            var line = document.createElement('div');
+            line.textContent = message;
+            if (isError) line.style.color = '#d32f2f';
+            logsDiv.appendChild(line);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
         }
 
         function resetExportButtons() {
-            document.getElementById('start-export-btn').style.display = 'block';
-            document.getElementById('start-export-btn').disabled = false;
             document.getElementById('stop-export-btn').style.display = 'none';
-            document.getElementById('stop-export-btn').textContent = "STOP"; // Reset text
-        }
-
-        function updateExportProgress(percent, text) {
-            document.getElementById('export-progress-bar').style.width = percent + '%';
-            document.getElementById('export-progress-p').textContent = percent + '%';
-            document.getElementById('export-status-text').textContent = text;
-        }
-
-        function startPolling() {
-            stopPolling();
-            pollingInterval = setInterval(function () {
-                google.script.run
-                    .withSuccessHandler(function (progress) {
-                        if (progress && progress.percent !== undefined) {
-                            var elapsed = ((Date.now() - consoleStartTime) / 1000).toFixed(1);
-                            var status = progress.status || 'Traitement...';
-                            if (progress.percent >= 100) {
-                                status = 'Terminé en ' + elapsed + 's';
-                                stopPolling();
-                            } else {
-                                status = status + ' (' + elapsed + 's)';
-                            }
-                            updateProgressBar(progress.percent, status);
-                        }
-                    })
-                    .withFailureHandler(function (err) {
-                        console.error('Polling error:', err);
-                    })
-                    .getProgress();
-            }, 1000);
-        }
-
-        function stopPolling() {
-            if (pollingInterval) {
-                clearInterval(pollingInterval);
-                pollingInterval = null;
-            }
+            document.getElementById('stop-export-btn').textContent = "STOP";
         }
 
         // === VUE IMPORT ===
-        var importState = { totalRecords: 0, processedRecords: 0, batchSize: 50, stopRequested: false };
+        var importState = {
+            totalRecords: 0,
+            processedRecords: 0,
+            batchSize: 50,
+            stopRequested: false
+        };
 
         function initImportView() {
-            document.getElementById('config-view').style.display = 'none';
-            document.getElementById('mapping-view').style.display = 'none';
-            document.getElementById('enrichment-view').style.display = 'none';
-            document.getElementById('export-view').style.display = 'none';
+            hideAllViews();
             document.getElementById('import-view').style.display = 'block';
 
             google.script.run

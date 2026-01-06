@@ -37,6 +37,13 @@ function IBAN(ibanValue, mode) {
   return OdooRDD.IBAN(ibanValue, mode);
 }
 
+function GEN_MDP(dummy) {
+  return OdooRDD.GEN_MDP(dummy);
+}
+
+function ODOO_GROUPS_X(headersList, valuesList, headersBool, valuesBool, refApps, refFuncs, refIds) {
+  return OdooRDD.ODOO_GROUPS_X(headersList, valuesList, headersBool, valuesBool, refApps, refFuncs, refIds);
+}
 
 
 // Bridge pour la sidebar contextuelle (Unique)
@@ -45,10 +52,7 @@ function showContextualMappingSidebar() {
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
-// function showFormattingSidebar() { ... } // Removed
-  
-// ...
-
+// Fonction de mise en forme de l'onglet actif
 function formatActiveSheet() {
   var result = OdooRDD.formatActiveSheet();
   if (result.success) {
@@ -64,6 +68,10 @@ function showEnrichmentSidebar() {
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
+function showExportSidebar() {
+  var html = OdooRDD.template_showExportSidebar();
+  SpreadsheetApp.getUi().showSidebar(html);
+}
 
 function showPlaceholder() {
   SpreadsheetApp.getUi().alert("Fonctionnalité en cours de développement");
@@ -83,8 +91,6 @@ function getSidebarMode() {
   return OdooRDD.getSidebarMode();
 }
 
-
-// --- Mapping Contextuel (Lazy Loading) ---
 
 function getInitialMappingData(sheetName) {
   return OdooRDD.getInitialMappingData(sheetName);
@@ -110,15 +116,16 @@ function testMappingData(sheetName, modelName, columnMappings) {
   return OdooRDD.testMappingData(sheetName, modelName, columnMappings);
 }
 
-// function formatActiveSheet() { ... } // Moved up
-
-
 function activateAIAuthorization() {
   return OdooRDD.template_activateAIAuthorization();
 }
 
 function activateAIAuthorizationFromMenu() {
   OdooRDD.template_activateAIAuthorization();
+}
+
+function getAiMappingSuggestions(headers, odooFields) {
+  return OdooRDD.getAiMappingSuggestions(headers, odooFields);
 }
 
 // --- Enrichment Functions ---
@@ -151,8 +158,23 @@ function enrichment_mergeTabs() {
   return OdooRDD.enrichment_mergeTabs();
 }
 
-// --- AI Mapping Suggestions ---
+function prepareForExport() {
+  return OdooRDD.prepareForExport();
+}
 
-function getAiMappingSuggestions(headers, odooFields) {
-  return OdooRDD.getAiMappingSuggestions(headers, odooFields);
+function processExportBatch(sheetName, rowsIndices) {
+  return OdooRDD.processExportBatch(sheetName, rowsIndices);
+}
+
+function showImportSidebar() {
+  var html = OdooRDD.template_showImportSidebar();
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function prepareForImport() {
+  return OdooRDD.prepareForImport();
+}
+
+function processImportBatch(sheetName, offset, batchSize) {
+  return OdooRDD.processImportBatch(sheetName, offset, batchSize);
 }
