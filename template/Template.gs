@@ -154,6 +154,14 @@ function enrichment_formatPhones() {
   return OdooRDD.enrichment_formatPhones();
 }
 
+function enrichment_validateAddresses() {
+  return OdooRDD.enrichment_validateAddresses();
+}
+
+function getProgress() {
+  return OdooRDD.getProgress();
+}
+
 function enrichment_mergeTabs() {
   return OdooRDD.enrichment_mergeTabs();
 }

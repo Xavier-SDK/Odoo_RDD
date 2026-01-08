@@ -242,12 +242,13 @@
 
         .progress-container {
             width: 100%;
-            height: 28px;
+            height: 24px;
             background-color: #e8f5e9;
-            border-radius: 6px;
+            border-radius: 4px;
             overflow: hidden;
             position: relative;
             border: 1px solid #c8e6c9;
+            margin-top: 4px;
         }
 
         .progress-bar {
@@ -263,16 +264,26 @@
             text-align: center;
             top: 50%;
             transform: translateY(-50%);
-            font-size: 12px;
-            color: #fff;
+            font-size: 11px;
+            color: #1b5e20;
             font-weight: 600;
-            text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
         }
     </style>
 </head>
 
 <body>
     <div id="main-content">
+        <!-- Odoo Console (Maintenant en haut pour une meilleure visibilité) -->
+        <div id="odoo-console" class="odoo-console"
+            style="margin: 0 0 20px 0; padding: 12px; border-color: #34a853; background-color: #f6fbf7;">
+            <div id="console-status-text" class="console-status"
+                style="font-weight: 500; color: #137333; margin-bottom: 6px;">Prêt</div>
+            <div class="progress-container">
+                <div id="console-progress-bar" class="progress-bar"></div>
+                <div id="console-progress-percentage" class="progress-text">0%</div>
+            </div>
+        </div>
+
         <div id="init-loading" style="text-align: center; padding: 20px;">
             <i class="fa fa-spinner fa-spin" style="font-size: 24px; color: #1a73e8;"></i>
             <div style="margin-top: 10px; color: #5f6368;">Chargement de l'interface...</div>
@@ -384,6 +395,11 @@
 
             <div class="section-divider"></div>
 
+            <h3>📍 Validation d'adresses</h3>
+            <button type="button" id="validateAddressesBtn" class="ai-btn">Normaliser les adresses (Google)</button>
+
+            <div class="section-divider"></div>
+
             <h3>📞 Formatage</h3>
             <button type="button" id="formatPhonesBtn">Formater les numéros de téléphone</button>
 
@@ -448,18 +464,8 @@
             </div>
         </div>
 
-        <!-- Odoo Console (Visible pendant les traitements longs) -->
-        <div id="odoo-console" class="odoo-console">
-            <div class="console-header">
-                <h3 class="console-title">Console Odoo</h3>
-            </div>
-            <div class="console-divider"></div>
-            <div id="console-status-text" class="console-status">Initialisation...</div>
-            <div class="progress-container">
-                <div id="console-progress-bar" class="progress-bar"></div>
-                <div id="console-progress-percentage" class="progress-text">0%</div>
-            </div>
-        </div>
+        <!-- Les autres consoles spécifiques peuvent rester si nécessaire, mais on privilégie la console principale haut -->
+
     </div>
 
     <script>
@@ -526,6 +532,7 @@
             safeAddListener('saveBackupBtn', 'click', handleSaveBackup);
             safeAddListener('restoreBackupBtn', 'click', handleRestoreBackup);
             safeAddListener('populateCountriesBtn', 'click', handlePopulateCountries);
+            safeAddListener('validateAddressesBtn', 'click', handleValidateAddresses);
             safeAddListener('formatPhonesBtn', 'click', handleFormatPhones);
             safeAddListener('populateStatesBtn', 'click', handlePopulateStates); // Added missing listener
 
@@ -657,6 +664,24 @@
                     showEnrichmentStatus('Erreur: ' + err.message, 'error');
                 })
                 .enrichment_populateCountries();
+        }
+
+        function handleValidateAddresses() {
+            showConsole('Validation des adresses');
+            startPolling();
+            setEnrichmentLoading(true);
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    setEnrichmentLoading(false);
+                    hideConsole(1000);
+                    showEnrichmentStatus(result.message, result.success ? 'success' : 'error');
+                })
+                .withFailureHandler(function (err) {
+                    setEnrichmentLoading(false);
+                    hideConsole(0);
+                    showEnrichmentStatus('Erreur: ' + err.message, 'error');
+                })
+                .enrichment_validateAddresses();
         }
 
         function handleFormatPhones() {
@@ -1164,7 +1189,7 @@
 
         function startPolling() {
             if (pollingInterval) clearInterval(pollingInterval);
-            pollingInterval = setInterval(pollProgress, 1000);
+            pollingInterval = setInterval(pollProgress, 3000);
         }
 
         function stopPolling() {
@@ -1218,10 +1243,17 @@
         function updateProgressBar(percent, statusText) {
             var bar = document.getElementById('console-progress-bar');
             var text = document.getElementById('console-progress-percentage');
+            var statusEl = document.getElementById('console-status-text');
+
             if (bar) bar.style.width = percent + '%';
-            if (text) text.textContent = Math.round(percent) + '%';
-            if (statusText) {
-                document.getElementById('console-status-text').textContent = statusText;
+
+            // Fusionner les infos : Pourcentage + Statut si disponible
+            if (text) {
+                text.textContent = Math.round(percent) + '%';
+            }
+
+            if (statusText && statusEl) {
+                statusEl.textContent = statusText;
             }
         }
 

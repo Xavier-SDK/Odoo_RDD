@@ -664,9 +664,7 @@ function enrichment_populateStates() {
       _updateProgress(percent, "Lot " + currentBatchNum + " / " + totalBatches);
       
       var progressVal = Math.round((currentBatchNum / totalBatches) * 10);
-      var bar = "";
-      for (var p = 0; p < 10; p++) bar += (p < progressVal) ? "█" : "░";
-      ss.toast(bar + " " + Math.round((currentBatchNum / totalBatches) * 100) + "% (Lot " + currentBatchNum + "/" + totalBatches + ")", "Enrichissement des états & villes", -1);
+      // Toasts supprimés au profit de la sidebar
       
       var batch = addresses.slice(b, b + BATCH_SIZE);
       
@@ -747,7 +745,6 @@ function enrichment_populateStates() {
     }
     
     _updateProgress(100, "Terminé");
-    ss.toast("Peuplement des états et villes terminé !", "Odoo RDD", 5);
     
     return { success: true, message: updatedCount + ' lignes traitées avec succès.' };
     
@@ -868,9 +865,7 @@ function enrichment_populateCountries() {
       _updateProgress(percent, "Lot " + currentBatchNum + " / " + totalBatches);
       
       var progressVal = Math.round((currentBatchNum / totalBatches) * 10);
-      var bar = "";
-      for (var p = 0; p < 10; p++) bar += (p < progressVal) ? "█" : "░";
-      ss.toast(bar + " " + Math.round((currentBatchNum / totalBatches) * 100) + "% (Lot " + currentBatchNum + "/" + totalBatches + ")", "Enrichissement des pays & villes", -1);
+      // Toasts supprimés au profit de la sidebar
       
       var batch = addresses.slice(b, b + BATCH_SIZE);
       
@@ -960,7 +955,6 @@ function enrichment_populateCountries() {
     }
     
     _updateProgress(100, "Terminé");
-    ss.toast("Peuplement des pays et villes terminé !", "Odoo RDD", 5);
     
     return { success: true, message: updatedCount + ' lignes traitées avec succès.' };
     
@@ -1160,6 +1154,362 @@ function enrichment_formatPhones() {
     _updateProgress(0, "Erreur");
     return { success: false, message: 'Erreur : ' + e.toString() };
   }
+}
+
+/**
+ * Valide et corrige les adresses en utilisant l'API Google Address Validation.
+ * Boucle sur toutes les lignes de l'onglet actif et normalise les adresses.
+ */
+function enrichment_validateAddresses() {
+  try {
+    var config = template_getOdooConfig();
+    var apiKey = config.googleAiKey;
+    
+    if (!apiKey) {
+      return { success: false, message: 'Clé API Google manquante. Configurez-la dans Odoo RDD > Configuration.' };
+    }
+    
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var activeSheet = ss.getActiveSheet();
+    var sheetName = activeSheet.getName();
+    
+    // Récupérer le mapping des champs
+    var mappings = readSmartTable('ODOO_FIELDS');
+    var sheetId = activeSheet.getSheetId().toString();
+    var sheetMappings = mappings.filter(function(m) { return String(m['ID Onglet']) === sheetId; });
+    
+    if (sheetMappings.length === 0) {
+      return { success: false, message: 'Vous devez d\'abord mapper les champs disponibles avec ceux d\'Odoo via le menu "Odoo RDD > Traitement des données > Mapping".' };
+    }
+    
+    // Trouver les colonnes d'adresse
+    var addressFields = {
+      street: null, street2: null, zip: null, city: null, country: null, state: null
+    };
+    
+    var headers = activeSheet.getRange(1, 1, 1, activeSheet.getLastColumn()).getValues()[0];
+    
+    for (var i = 0; i < sheetMappings.length; i++) {
+      var mapping = sheetMappings[i];
+      var odooField = mapping['Champ Odoo'];
+      var colName = mapping['Entête'];
+      var colIndex = headers.indexOf(colName);
+      
+      if (colIndex >= 0) {
+        if (odooField === 'street') addressFields.street = colIndex + 1;
+        else if (odooField === 'street2') addressFields.street2 = colIndex + 1;
+        else if (odooField === 'zip') addressFields.zip = colIndex + 1;
+        else if (odooField === 'city') addressFields.city = colIndex + 1;
+        else if (odooField === 'country_id') addressFields.country = colIndex + 1;
+        else if (odooField === 'state_id') addressFields.state = colIndex + 1;
+      }
+    }
+    
+    if (!addressFields.street && !addressFields.city && !addressFields.zip) {
+      return { success: false, message: 'Aucune colonne d\'adresse n\'a été mappée. Mappez au minimum street, city ou zip.' };
+    }
+    
+    // Récupérer les données d'adresse
+    var lastRow = activeSheet.getLastRow();
+    if (lastRow < 2) {
+      return { success: false, message: 'Aucune donnée à traiter.' };
+    }
+    
+    var addresses = [];
+    
+    for (var i = 2; i <= lastRow; i++) {
+      var addr = {
+        row: i,
+        street: addressFields.street ? activeSheet.getRange(i, addressFields.street).getValue().toString().trim() : '',
+        street2: addressFields.street2 ? activeSheet.getRange(i, addressFields.street2).getValue().toString().trim() : '',
+        zip: addressFields.zip ? activeSheet.getRange(i, addressFields.zip).getValue().toString().trim() : '',
+        city: addressFields.city ? activeSheet.getRange(i, addressFields.city).getValue().toString().trim() : '',
+        country: addressFields.country ? activeSheet.getRange(i, addressFields.country).getValue().toString().trim() : ''
+      };
+      
+      // Ne traiter que les lignes avec au moins une information d'adresse
+      if (addr.street || addr.city || addr.zip) {
+        addresses.push(addr);
+      }
+    }
+    
+    if (addresses.length === 0) {
+      return { success: true, message: 'Aucune adresse à traiter (lignes vides).' };
+    }
+    
+    // Traitement par lots optimisé
+    var BATCH_SIZE = 50; // Groupes de 50 pour meilleures performances
+    var validatedCount = 0;
+    var ignoredCount = 0;
+    var totalBatches = Math.ceil(addresses.length / BATCH_SIZE);
+    
+    var batchesToProcess = totalBatches;
+    
+    for (var b = 0; b < batchesToProcess * BATCH_SIZE && b < addresses.length; b += BATCH_SIZE) {
+      var currentBatchNum = Math.floor(b / BATCH_SIZE) + 1;
+      var percent = Math.round((currentBatchNum / batchesToProcess) * 100);
+      _updateProgress(percent, "Lot " + currentBatchNum + " / " + totalBatches);
+      
+      var progressVal = Math.round((percent / 100) * 10);
+      // Toasts supprimés au profit de la sidebar
+      
+      var batch = addresses.slice(b, Math.min(b + BATCH_SIZE, addresses.length));
+      var firstRowInBatch = batch[0].row;
+      var lastRowInBatch = batch[batch.length - 1].row;
+      var rowCount = lastRowInBatch - firstRowInBatch + 1;
+      
+      Logger.log('Traitement du lot ' + currentBatchNum + ': Lignes ' + firstRowInBatch + ' à ' + lastRowInBatch);
+      
+      // Préparer les structures pour stocker les mises à jour en mémoire
+      var batchUpdates = [];
+      
+      // Traiter chaque adresse du lot EN MÉMOIRE
+      for (var j = 0; j < batch.length; j++) {
+        var addr = batch[j];
+        try {
+          var validatedAddress = validateAddressWithGoogle(addr, apiKey);
+          if (validatedAddress) {
+            batchUpdates.push({
+              row: addr.row,
+              data: validatedAddress
+            });
+            validatedCount++;
+          } else {
+            ignoredCount++;
+          }
+        } catch (e) {
+          Logger.log('Erreur ligne ' + addr.row + ': ' + e.toString());
+          ignoredCount++;
+        }
+        // Pause plus longue pour éviter les rate limits (250ms)
+        Utilities.sleep(250);
+      }
+      
+      // MISE À JOUR EN MASSE par colonne pour ce batch
+      if (batchUpdates.length > 0) {
+        var fieldsToUpdate = ['street', 'street2', 'zip', 'city', 'country', 'state'];
+        fieldsToUpdate.forEach(function(fieldKey) {
+          var colIndex = addressFields[fieldKey];
+          if (colIndex) {
+            // Lire toute la colonne pour la plage du batch
+            var range = activeSheet.getRange(firstRowInBatch, colIndex, rowCount, 1);
+            var values = range.getValues();
+            
+            // Mettre à jour les valeurs dans l'array 2D
+            var hasChanges = false;
+            batchUpdates.forEach(function(update) {
+              var rowIndexInArray = update.row - firstRowInBatch;
+              var rawValue = values[rowIndexInArray][0] ? values[rowIndexInArray][0].toString() : '';
+              var newValue = update.data[fieldKey] ? update.data[fieldKey].toString() : '';
+              
+              // Nettoyer l'ancienne valeur pour la comparaison (Sheets masque parfois l'apostrophe)
+              var cleanOldValue = rawValue.startsWith("'") ? rawValue.substring(1) : rawValue;
+              
+              // Spécifique au Code Postal : on prépare le format texte
+              var valueToWrite = newValue;
+              if (fieldKey === 'zip' && newValue && !newValue.startsWith("'")) {
+                valueToWrite = "'" + newValue;
+              }
+              
+              // On met à jour si la valeur a changé (sans l'apostrophe) ou si le champ était vide
+              if (newValue !== undefined && newValue !== null && (newValue !== cleanOldValue || (newValue !== '' && cleanOldValue === ''))) {
+                values[rowIndexInArray][0] = valueToWrite;
+                hasChanges = true;
+                Logger.log('Ligne ' + update.row + ' [' + fieldKey + ']: ' + cleanOldValue + ' -> ' + newValue);
+              }
+            });
+            
+            // Écrire tout d'un coup pour cette colonne
+            if (hasChanges) {
+              range.setValues(values);
+            }
+          }
+        });
+        Logger.log('Lot ' + currentBatchNum + ': Mise à jour de ' + batchUpdates.length + ' lignes effectuée.');
+      }
+      
+      var percent = Math.round((currentBatchNum / totalBatches) * 100);
+      _updateProgress(percent, "Lot " + currentBatchNum + " / " + totalBatches);
+    }
+    
+    _updateProgress(100, "Terminé");
+    
+    return { 
+      success: true, 
+      message: validatedCount + ' adresses validées et corrigées. ' + ignoredCount + ' adresses ignorées.'
+    };
+    
+  } catch (e) {
+    Logger.log('Error in enrichment_validateAddresses: ' + e.toString());
+    _updateProgress(0, "Erreur");
+    return { success: false, message: 'Erreur : ' + e.toString() };
+  }
+}
+
+/**
+ * Valide une adresse unique avec l'API Google Address Validation
+ * @param {Object} addressData - Objet contenant les champs d'adresse (street, street2, zip, city, country)
+ * @param {string} apiKey - Clé API Google
+ * @return {Object|null} Adresse normalisée ou null si non reconnue
+ */
+function validateAddressWithGoogle(addressData, apiKey) {
+  try {
+    // Construire les addressLines
+    var addressLines = [];
+    if (addressData.street) addressLines.push(addressData.street);
+    if (addressData.street2) addressLines.push(addressData.street2);
+    
+    // Convertir le nom du pays en code ISO si nécessaire
+    var regionCode = getCountryCode(addressData.country);
+    
+    // Construire la requête
+    var url = 'https://addressvalidation.googleapis.com/v1:validateAddress?key=' + apiKey;
+    
+    var payload = {
+      address: {
+        regionCode: regionCode || 'FR', // Défaut France si non spécifié
+        locality: addressData.city || '',
+        postalCode: addressData.zip || '',
+        addressLines: addressLines
+      }
+    };
+    
+    var options = {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    };
+    
+    var response = UrlFetchApp.fetch(url, options);
+    var responseCode = response.getResponseCode();
+    var responseText = response.getContentText();
+    
+    if (responseCode !== 200) {
+      Logger.log('Erreur API Address Validation (HTTP ' + responseCode + '): ' + responseText);
+      return null;
+    }
+    
+    var result = JSON.parse(responseText);
+    
+    // Vérifier si l'adresse a été traitée (même partiellement)
+    if (!result.result || !result.result.address) {
+      Logger.log('Ligne ' + (addressData.row || '?') + ': Aucun résultat retourné par Google.');
+      return null;
+    }
+    
+    var verdict = result.result.verdict || {};
+    var address = result.result.address;
+    var components = address.addressComponents || [];
+    var postalAddress = address.postalAddress || {};
+    
+    // LOGIQUE DE VALIDATION ASSOUPLIE : On accepte dès qu'on a une rue ou un point d'intérêt
+    var acceptedGranularity = ['PREMISE', 'SUB_PREMISE', 'PREMISE_PROXIMITY', 'POINT_OF_INTEREST', 'ROUTE', 'STREET_ADDRESS'];
+    var isAcceptable = acceptedGranularity.indexOf(verdict.validationGranularity) !== -1 || verdict.addressComplete === true;
+    
+    if (!isAcceptable) {
+       Logger.log('Ligne ' + (addressData.row || '?') + ': Ignorée car trop imprécise (' + (verdict.validationGranularity || 'UNKNOWN') + ')');
+       return null;
+    }
+
+    // Extraction robuste des composants
+    var normalizedAddress = {
+      street: '',
+      street2: '',
+      zip: '',
+      city: '',
+      state: '',
+      country: ''
+    };
+
+    // 1. EXTRACTION INTELLIGENTE DE LA VILLE
+    var cityTypes = ['locality', 'postal_town', 'sublocality_level_1', 'administrative_area_level_3'];
+    var foundCity = '';
+    
+    for (var t = 0; t < cityTypes.length; t++) {
+      var comp = components.find(function(c) { return c.componentType === cityTypes[t]; });
+      if (comp && comp.componentName && comp.componentName.text) {
+        var text = comp.componentName.text;
+        if (!/^\d+$/.test(text.replace(/\s/g, ''))) {
+          foundCity = text;
+          break;
+        }
+      }
+    }
+    normalizedAddress.city = foundCity || postalAddress.locality || '';
+
+    // 2. EXTRAIRE L'ÉTAT (administrative_area_level_1)
+    var stateComp = components.find(function(c) { return c.componentType === 'administrative_area_level_1'; });
+    if (stateComp) normalizedAddress.state = stateComp.componentName.text;
+
+    // 3. EXTRAIRE LE PAYS (Nom complet si possible)
+    var countryComp = components.find(function(c) { return c.componentType === 'country'; });
+    normalizedAddress.country = countryComp ? countryComp.componentName.text : (postalAddress.regionCode || '');
+
+    // 4. EXTRAIRE LE CODE POSTAL
+    var zipComp = components.find(function(c) { return c.componentType === 'postal_code'; });
+    normalizedAddress.zip = zipComp ? zipComp.componentName.text : (postalAddress.postalCode || '');
+
+    // 5. RECONSTRUIRE LA RUE
+    if (postalAddress.addressLines && postalAddress.addressLines.length > 0) {
+      normalizedAddress.street = postalAddress.addressLines[0];
+      if (postalAddress.addressLines.length > 1) {
+        normalizedAddress.street2 = postalAddress.addressLines.slice(1).join(', ');
+      }
+    }
+
+    if (normalizedAddress.city !== addressData.city || normalizedAddress.zip !== addressData.zip) {
+      Logger.log('Ligne ' + (addressData.row || '?') + ': Corrigée -> ' + normalizedAddress.city + ' (' + normalizedAddress.zip + ')');
+    }
+    
+    return normalizedAddress;
+    
+  } catch (e) {
+    Logger.log('Erreur dans validateAddressWithGoogle: ' + e.toString());
+    return null;
+  }
+}
+
+/**
+ * Convertit un nom de pays en code ISO 2 lettres
+ * @param {string} countryName - Nom du pays (français ou anglais)
+ * @return {string} Code ISO 2 lettres
+ */
+function getCountryCode(countryName) {
+  if (!countryName) return 'FR';
+  
+  var name = countryName.toString().trim().toUpperCase();
+  
+  // Si c'est déjà un code à 2 lettres, on le retourne
+  if (name.length === 2) return name;
+  
+  // Table de correspondance des pays les plus courants
+  var countryMap = {
+    'FRANCE': 'FR',
+    'BELGIUM': 'BE',
+    'BELGIQUE': 'BE',
+    'GERMANY': 'DE',
+    'ALLEMAGNE': 'DE',
+    'SPAIN': 'ES',
+    'ESPAGNE': 'ES',
+    'ITALY': 'IT',
+    'ITALIE': 'IT',
+    'UNITED KINGDOM': 'GB',
+    'ROYAUME-UNI': 'GB',
+    'NETHERLANDS': 'NL',
+    'PAYS-BAS': 'NL',
+    'SWITZERLAND': 'CH',
+    'SUISSE': 'CH',
+    'PORTUGAL': 'PT',
+    'LUXEMBOURG': 'LU',
+    'AUSTRIA': 'AT',
+    'AUTRICHE': 'AT',
+    'UNITED STATES': 'US',
+    'ÉTATS-UNIS': 'US',
+    'CANADA': 'CA'
+  };
+  
+  return countryMap[name] || 'FR';
 }
 
 /**
