@@ -1514,45 +1514,61 @@ function enrichment_validateSiret() {
     var countCorrected = 0;
     var countFilled = 0;
     
-    _updateProgress(0, "Analyse des données...");
+    _updateProgress(0, "Démarrage SIRENE...");
+    _addLog("ℹ️ Début du traitement SIRENE pour " + data.length + " lignes.");
     
-    for (var i = 0; i < data.length; i++) {
-        var rowNum = i + 2;
-        var name = fields.name ? data[i][fields.name - 1].toString().trim() : '';
-        var currentSiret = fields.vat ? data[i][fields.vat - 1].toString().trim().replace(/\s/g, '') : '';
-        var zip = fields.zip ? data[i][fields.zip - 1].toString().trim() : '';
-        var city = fields.city ? data[i][fields.city - 1].toString().trim() : '';
-        var country = fields.country ? data[i][fields.country - 1].toString().trim().toUpperCase() : '';
+    // Traitement par lots optimisé
+    var BATCH_SIZE = 50;
+    var totalBatches = Math.ceil(data.length / BATCH_SIZE);
+    
+    for (var b = 0; b < data.length; b += BATCH_SIZE) {
+        var currentBatchNum = Math.floor(b / BATCH_SIZE) + 1;
+        var batch = data.slice(b, Math.min(b + BATCH_SIZE, data.length));
+        var batchUpdates = [];
         
-        // Filtre : Uniquement France (FR ou France ou vide si CP/Ville suggèrent la France)
-        var isFrance = (country === 'FR' || country === 'FRANCE' || country === '' || country === '1'); 
-        if (!isFrance || !name) continue;
+        _updateProgress(Math.round((b / data.length) * 100), "Lot " + currentBatchNum + "/" + totalBatches);
         
-        var percent = Math.round((i / data.length) * 100);
-        if (i % 5 === 0) _updateProgress(percent, "Vérification : " + name);
-        
-        var result = _lookupSirene(name, currentSiret, zip, city);
-        
-        if (result && result.siret) {
-            var newSiret = result.siret;
-            if (currentSiret !== newSiret) {
-                if (!currentSiret) countFilled++;
-                else countCorrected++;
-                
-                updates.push({ row: rowNum, value: newSiret });
-                Logger.log('Ligne ' + rowNum + ': SIRET ' + (currentSiret ? 'corrigé' : 'trouvé') + ' -> ' + newSiret + ' (' + name + ')');
+        for (var i = 0; i < batch.length; i++) {
+            var rowNum = b + i + 2;
+            var rowData = batch[i];
+            
+            var name = fields.name ? rowData[fields.name - 1].toString().trim() : '';
+            var currentSiret = fields.vat ? rowData[fields.vat - 1].toString().trim().replace(/\s/g, '') : '';
+            var zip = fields.zip ? rowData[fields.zip - 1].toString().trim() : '';
+            var city = fields.city ? rowData[fields.city - 1].toString().trim() : '';
+            var country = fields.country ? rowData[fields.country - 1].toString().trim().toUpperCase() : '';
+            
+            // Filtre France
+            var isFrance = (country === 'FR' || country === 'FRANCE' || country === '' || country === '1'); 
+            if (!isFrance || !name) continue;
+            
+            var result = _lookupSirene(name, currentSiret, zip, city);
+            
+            if (result && result.siret) {
+                var newSiret = result.siret;
+                if (currentSiret !== newSiret) {
+                    if (!currentSiret) {
+                        countFilled++;
+                        _addLog("✅ Trouvé pour " + name + " : " + newSiret);
+                    } else {
+                        countCorrected++;
+                        _addLog("🔄 Corrigé pour " + name + " : " + newSiret);
+                    }
+                    batchUpdates.push({ row: rowNum, value: newSiret });
+                }
             }
+            
+            // Pause dynamique courte (100ms) car on est sur un batch
+            Utilities.sleep(100);
         }
         
-        // Respecter les quotas de l'API (env. 7 requêtes par seconde max conseillé)
-        Utilities.sleep(150);
-    }
-    
-    // Appliquer les mises à jour
-    if (updates.length > 0) {
-        updates.forEach(function(u) {
-            activeSheet.getRange(u.row, fields.vat).setValue("'" + u.value); // Forcer format texte
-        });
+        // Écriture du lot
+        if (batchUpdates.length > 0) {
+            batchUpdates.forEach(function(u) {
+                activeSheet.getRange(u.row, fields.vat).setValue("'" + u.value);
+            });
+            _addLog("📥 Lot " + currentBatchNum + " : " + batchUpdates.length + " SIRET mis à jour.");
+        }
     }
     
     _updateProgress(100, "Terminé");
@@ -1579,16 +1595,18 @@ function _lookupSirene(name, currentSiret, zip, city) {
     if (currentSiret && currentSiret.length === 14) {
         try {
             var url = baseUrl + 'q=' + currentSiret + '&limite=1';
+            Logger.log('Connexion SIRENE (Validation) : ' + url);
             var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
             if (resp.getResponseCode() === 200) {
                 var json = JSON.parse(resp.getContentText());
                 if (json.results && json.results.length > 0) {
                     var found = json.results[0];
-                    // Si on trouve exactement le même SIRET, on considère qu'il est correct
                     if (found.matching_etablissements && found.matching_etablissements[0].siret === currentSiret) {
                         return { siret: currentSiret, valid: true };
                     }
                 }
+            } else {
+                _addLog("⚠️ API SIRENE Error " + resp.getResponseCode() + " sur SIRET " + currentSiret);
             }
         } catch (e) {}
     }
@@ -1597,17 +1615,19 @@ function _lookupSirene(name, currentSiret, zip, city) {
     try {
         var query = encodeURIComponent(name + ' ' + zip + ' ' + city);
         var url = baseUrl + 'q=' + query + '&limite=1';
+        Logger.log('Connexion SIRENE (Recherche) : ' + url);
         var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
         
         if (resp.getResponseCode() === 200) {
             var json = JSON.parse(resp.getContentText());
             if (json.results && json.results.length > 0) {
                 var result = json.results[0];
-                // On privilégie l'établissement qui matche la requête
                 if (result.matching_etablissements && result.matching_etablissements.length > 0) {
                     return { siret: result.matching_etablissements[0].siret, valid: true };
                 }
             }
+        } else {
+             _addLog("⚠️ API SIRENE Error " + resp.getResponseCode() + " sur " + name);
         }
     } catch (e) {
         Logger.log('Erreur _lookupSirene (' + name + '): ' + e.toString());
@@ -1676,7 +1696,34 @@ function getProgress() {
  */
 function _updateProgress(percent, status) {
   var cache = CacheService.getUserCache();
-  cache.put('odoo_rdd_progress', JSON.stringify({ percent: percent, status: status }), 600);
+  var progress = { percent: percent, status: status };
+  
+  // Récupérer les derniers logs s'ils existent
+  var logs = cache.get('odoo_rdd_logs');
+  if (logs) {
+    progress.logs = JSON.parse(logs);
+  }
+  
+  cache.put('odoo_rdd_progress', JSON.stringify(progress), 600);
+}
+
+/**
+ * Ajoute un message de log dans la file (cache)
+ * @private
+ */
+function _addLog(message) {
+  var cache = CacheService.getUserCache();
+  var logsJson = cache.get('odoo_rdd_logs');
+  var logs = logsJson ? JSON.parse(logsJson) : [];
+  
+  var timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "HH:mm:ss");
+  logs.push("[" + timestamp + "] " + message);
+  
+  // Garder seulement les 5 derniers logs
+  if (logs.length > 5) logs.shift();
+  
+  cache.put('odoo_rdd_logs', JSON.stringify(logs), 600);
+  Logger.log(message);
 }
 
 /**

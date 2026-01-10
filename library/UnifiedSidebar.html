@@ -284,6 +284,9 @@
                 <div id="console-progress-bar" class="progress-bar"></div>
                 <div id="console-progress-percentage" class="progress-text">0%</div>
             </div>
+            <div id="console-logs-area"
+                style="font-size: 11px; color: #5f6368; margin-top: 8px; font-family: monospace; line-height: 1.4; border-top: 1px solid #e0e0e0; padding-top: 6px; display: none;">
+            </div>
         </div>
 
         <div id="init-loading" style="text-align: center; padding: 20px;">
@@ -1230,7 +1233,7 @@
             google.script.run
                 .withSuccessHandler(function (progress) {
                     if (progress) {
-                        updateProgressBar(progress.percent, progress.status);
+                        updateProgressBar(progress.percent, progress.status, progress.logs);
                     }
                 })
                 .withFailureHandler(function (err) {
@@ -1255,6 +1258,12 @@
             var statusEl = document.getElementById('console-status-text');
             if (statusEl) statusEl.textContent = 'Initialisation...';
 
+            var logsArea = document.getElementById('console-logs-area');
+            if (logsArea) {
+                logsArea.innerHTML = '';
+                logsArea.style.display = 'none';
+            }
+
             updateProgressBar(0);
             if (consoleEl) consoleEl.style.display = 'block';
             consoleStartTime = Date.now();
@@ -1277,20 +1286,28 @@
             }
         }
 
-        function updateProgressBar(percent, statusText) {
+        function updateProgressBar(percent, statusText, logs) {
             var bar = document.getElementById('console-progress-bar');
             var text = document.getElementById('console-progress-percentage');
             var statusEl = document.getElementById('console-status-text');
+            var logsArea = document.getElementById('console-logs-area');
 
             if (bar) bar.style.width = percent + '%';
 
-            // Fusionner les infos : Pourcentage + Statut si disponible
             if (text) {
                 text.textContent = Math.round(percent) + '%';
             }
 
             if (statusText && statusEl) {
                 statusEl.textContent = statusText;
+            }
+
+            if (logs && logs.length > 0 && logsArea) {
+                logsArea.innerHTML = logs.join('<br>');
+                logsArea.style.display = 'block';
+            } else if (logsArea && (!logs || logs.length === 0)) {
+                logsArea.style.display = 'none';
+                logsArea.innerHTML = '';
             }
         }
 
