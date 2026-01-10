@@ -275,7 +275,9 @@
     <div id="main-content">
         <!-- Odoo Console (Maintenant en haut pour une meilleure visibilité) -->
         <div id="odoo-console" class="odoo-console"
-            style="margin: 0 0 20px 0; padding: 12px; border-color: #34a853; background-color: #f6fbf7;">
+            style="margin: 0 0 20px 0; padding: 12px; border-color: #34a853; background-color: #f6fbf7; display: none;">
+            <div id="console-title"
+                style="font-size: 13px; font-weight: 600; color: #137333; margin-bottom: 4px; display: none;"></div>
             <div id="console-status-text" class="console-status"
                 style="font-weight: 500; color: #137333; margin-bottom: 6px;">Prêt</div>
             <div class="progress-container">
@@ -1214,12 +1216,22 @@
 
         function showConsole(title) {
             var consoleEl = document.getElementById('odoo-console');
-            var titleEl = consoleEl.querySelector('.console-title');
-            titleEl.textContent = title || 'Console Odoo';
+            var titleEl = document.getElementById('console-title');
 
-            document.getElementById('console-status-text').textContent = 'Initialisation...';
+            if (titleEl) {
+                if (title) {
+                    titleEl.textContent = title;
+                    titleEl.style.display = 'block';
+                } else {
+                    titleEl.style.display = 'none';
+                }
+            }
+
+            var statusEl = document.getElementById('console-status-text');
+            if (statusEl) statusEl.textContent = 'Initialisation...';
+
             updateProgressBar(0);
-            consoleEl.style.display = 'block';
+            if (consoleEl) consoleEl.style.display = 'block';
             consoleStartTime = Date.now();
 
             // Masquer les messages de statut classiques
