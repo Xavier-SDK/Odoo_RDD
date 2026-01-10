@@ -1594,9 +1594,15 @@ function enrichment_validateSiret() {
         
         // Écriture en une seule fois du lot si changements
         if (hasChanges) {
+            _addLog("💾 Écriture du lot " + currentBatchNum + "...");
             siretRange.setValues(siretValues);
             if (nameRange && nameValues) nameRange.setValues(nameValues);
-            _addLog("📥 Lot " + currentBatchNum + " : Mise à jour effectuée.");
+            
+            // Forcer la synchronisation avec la feuille
+            SpreadsheetApp.flush();
+            _addLog("📥 Lot " + currentBatchNum + " : Mise à jour effectuée et synchronisée.");
+        } else {
+            _addLog("ℹ️ Lot " + currentBatchNum + " : Aucun changement nécessaire.");
         }
     }
     
