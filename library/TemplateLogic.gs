@@ -1473,19 +1473,26 @@ function validateAddressWithGoogle(addressData, apiKey) {
  * Valide et complète les numéros SIRET via l'API SIRENE
  */
 function enrichment_validateSiret() {
+  _clearLogs();
+  _updateProgress(0, "Initialisation...");
+  _addLog("⏳ Démarrage du processus SIRENE...");
+  
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var activeSheet = ss.getActiveSheet();
     var sheetId = activeSheet.getSheetId().toString();
     
+    _addLog("🔍 Lecture du mappage ODOO_FIELDS...");
     // Récupérer le mapping des champs
     var mappings = readSmartTable('ODOO_FIELDS');
     var sheetMappings = mappings.filter(function(m) { return String(m['ID Onglet']) === sheetId; });
     
     if (sheetMappings.length === 0) {
+      _addLog("❌ Aucun mappage trouvé pour cet onglet.");
       return { success: false, message: 'Veuillez d\'abord mapper les champs Odoo.' };
     }
     
+    _addLog("📊 Analyse de la structure de la feuille...");
     // Détecter les colonnes nécessaires
     var fields = { name: null, vat: null, zip: null, city: null, country: null };
     var headers = activeSheet.getRange(1, 1, 1, activeSheet.getLastColumn()).getValues()[0];
@@ -1503,12 +1510,14 @@ function enrichment_validateSiret() {
     });
     
     if (!fields.name || !fields.vat) {
+      _addLog("❌ Champs requis (Nom/VAT) non mappés.");
       return { success: false, message: 'Mappage manquant : "name" (Nom) et "vat" (SIRET) sont requis.' };
     }
     
     var lastRow = activeSheet.getLastRow();
     if (lastRow < 2) return { success: false, message: 'Aucune donnée.' };
     
+    _addLog("📥 Lecture de " + (lastRow-1) + " lignes...");
     var data = activeSheet.getRange(2, 1, lastRow - 1, activeSheet.getLastColumn()).getValues();
     var updates = [];
     var countCorrected = 0;
@@ -1617,7 +1626,7 @@ function _lookupSirene(name, currentSiret, zip, city) {
     try {
         var query = encodeURIComponent(name + ' ' + zip + ' ' + city);
         var url = baseUrl + 'q=' + query + '&limite=1';
-        Logger.log('Connexion SIRENE (Recherche) : ' + url);
+        _addLog("🌐 Connexion API SIRENE : " + name);
         var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
         
         if (resp.getResponseCode() === 200) {
@@ -1627,9 +1636,11 @@ function _lookupSirene(name, currentSiret, zip, city) {
                 if (result.matching_etablissements && result.matching_etablissements.length > 0) {
                     return { siret: result.matching_etablissements[0].siret, valid: true };
                 }
+            } else {
+                _addLog("❓ Aucun résultat pour : " + name);
             }
         } else {
-             _addLog("⚠️ API SIRENE Error " + resp.getResponseCode() + " sur " + name);
+             _addLog("⚠️ API Error " + resp.getResponseCode() + " sur " + name);
         }
     } catch (e) {
         Logger.log('Erreur _lookupSirene (' + name + '): ' + e.toString());
@@ -1726,6 +1737,16 @@ function _addLog(message) {
   
   cache.put('odoo_rdd_logs', JSON.stringify(logs), 600);
   Logger.log(message);
+}
+
+/**
+ * Efface les logs dans le cache
+ * @private
+ */
+function _clearLogs() {
+    var cache = CacheService.getUserCache();
+    cache.remove('odoo_rdd_logs');
+    cache.remove('odoo_rdd_progress');
 }
 
 /**
