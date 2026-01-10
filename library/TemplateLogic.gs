@@ -1182,9 +1182,9 @@ function enrichment_validateAddresses() {
       return { success: false, message: 'Vous devez d\'abord mapper les champs disponibles avec ceux d\'Odoo via le menu "Odoo RDD > Traitement des données > Mapping".' };
     }
     
-    // Trouver les colonnes d'adresse et de nom d'entreprise
+    // Trouver les colonnes d'adresse
     var addressFields = {
-      street: null, street2: null, zip: null, city: null, country: null, state: null, company: null
+      street: null, street2: null, zip: null, city: null, country: null, state: null
     };
     
     var headers = activeSheet.getRange(1, 1, 1, activeSheet.getLastColumn()).getValues()[0];
@@ -1202,7 +1202,6 @@ function enrichment_validateAddresses() {
         else if (odooField === 'city') addressFields.city = colIndex + 1;
         else if (odooField === 'country_id') addressFields.country = colIndex + 1;
         else if (odooField === 'state_id') addressFields.state = colIndex + 1;
-        else if (odooField === 'name') addressFields.company = colIndex + 1;
       }
     }
     
@@ -1288,7 +1287,7 @@ function enrichment_validateAddresses() {
       
       // MISE À JOUR EN MASSE par colonne pour ce batch
       if (batchUpdates.length > 0) {
-        var fieldsToUpdate = ['street', 'street2', 'zip', 'city', 'country', 'state', 'company'];
+        var fieldsToUpdate = ['street', 'street2', 'zip', 'city', 'country', 'state'];
         fieldsToUpdate.forEach(function(fieldKey) {
           var colIndex = addressFields[fieldKey];
           if (colIndex) {
@@ -1414,7 +1413,6 @@ function validateAddressWithGoogle(addressData, apiKey) {
     }
 
     var normalizedAddress = {
-      company: '',
       street: '',
       street2: '',
       zip: '',
@@ -1422,14 +1420,6 @@ function validateAddressWithGoogle(addressData, apiKey) {
       state: '',
       country: ''
     };
-
-    // 0. EXTRAIRE LE NOM DE L'ENTREPRISE (Point d'intérêt ou destinataire)
-    var poiComp = components.find(function(c) { return c.componentType === 'point_of_interest'; });
-    if (poiComp) {
-      normalizedAddress.company = poiComp.componentName.text;
-    } else if (postalAddress.recipients && postalAddress.recipients.length > 0) {
-      normalizedAddress.company = postalAddress.recipients[0];
-    }
 
     // 1. EXTRACTION INTELLIGENTE DE LA VILLE
     var cityTypes = ['locality', 'postal_town', 'sublocality_level_1', 'administrative_area_level_3'];
