@@ -1523,13 +1523,17 @@ function enrichment_validateSiret() {
     
     for (var b = 0; b < data.length; b += BATCH_SIZE) {
         var currentBatchNum = Math.floor(b / BATCH_SIZE) + 1;
-        var batch = data.slice(b, Math.min(b + BATCH_SIZE, data.length));
-        var batchUpdates = [];
+        var rowCount = Math.min(BATCH_SIZE, data.length - b);
+        var batch = data.slice(b, b + rowCount);
         
         _updateProgress(Math.round((b / data.length) * 100), "Lot " + currentBatchNum + "/" + totalBatches);
         
+        // Lire la colonne SIRET actuelle pour ce lot
+        var siretRange = activeSheet.getRange(b + 2, fields.vat, rowCount, 1);
+        var siretValues = siretRange.getValues();
+        var hasChanges = false;
+        
         for (var i = 0; i < batch.length; i++) {
-            var rowNum = b + i + 2;
             var rowData = batch[i];
             
             var name = fields.name ? rowData[fields.name - 1].toString().trim() : '';
@@ -1554,20 +1558,18 @@ function enrichment_validateSiret() {
                         countCorrected++;
                         _addLog("🔄 Corrigé pour " + name + " : " + newSiret);
                     }
-                    batchUpdates.push({ row: rowNum, value: newSiret });
+                    siretValues[i][0] = "'" + newSiret; // Forcer texte
+                    hasChanges = true;
                 }
             }
             
-            // Pause dynamique courte (100ms) car on est sur un batch
             Utilities.sleep(100);
         }
         
-        // Écriture du lot
-        if (batchUpdates.length > 0) {
-            batchUpdates.forEach(function(u) {
-                activeSheet.getRange(u.row, fields.vat).setValue("'" + u.value);
-            });
-            _addLog("📥 Lot " + currentBatchNum + " : " + batchUpdates.length + " SIRET mis à jour.");
+        // Écriture en une seule fois du lot si changements
+        if (hasChanges) {
+            siretRange.setValues(siretValues);
+            _addLog("📥 Lot " + currentBatchNum + " : Mise à jour effectuée.");
         }
     }
     
