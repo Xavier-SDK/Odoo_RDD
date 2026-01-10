@@ -1537,37 +1537,54 @@ function enrichment_validateSiret() {
         
         _updateProgress(Math.round((b / data.length) * 100), "Lot " + currentBatchNum + "/" + totalBatches);
         
-        // Lire la colonne SIRET actuelle pour ce lot
+        // Lire les colonnes SIRET et NOM actuelles pour ce lot
         var siretRange = activeSheet.getRange(b + 2, fields.vat, rowCount, 1);
         var siretValues = siretRange.getValues();
+        var nameRange = fields.name ? activeSheet.getRange(b + 2, fields.name, rowCount, 1) : null;
+        var nameValues = nameRange ? nameRange.getValues() : null;
         var hasChanges = false;
         
         for (var i = 0; i < batch.length; i++) {
             var rowData = batch[i];
             
-            var name = fields.name ? rowData[fields.name - 1].toString().trim() : '';
-            var currentSiret = fields.vat ? rowData[fields.vat - 1].toString().trim().replace(/\s/g, '') : '';
+            var currentName = fields.name ? rowData[fields.name - 1].toString().trim() : '';
+            var rawSiret = fields.vat ? rowData[fields.vat - 1].toString().trim() : '';
+            var cleanedSiret = rawSiret.replace(/\s/g, '');
+            
             var zip = fields.zip ? rowData[fields.zip - 1].toString().trim() : '';
             var city = fields.city ? rowData[fields.city - 1].toString().trim() : '';
             var country = fields.country ? rowData[fields.country - 1].toString().trim().toUpperCase() : '';
             
             // Filtre France
             var isFrance = (country === 'FR' || country === 'FRANCE' || country === '' || country === '1'); 
-            if (!isFrance || !name) continue;
+            if (!isFrance || (!currentName && !cleanedSiret)) continue;
             
-            var result = _lookupSirene(name, currentSiret, zip, city);
+            var result = _lookupSirene(currentName, cleanedSiret, zip, city);
             
             if (result && result.siret) {
                 var newSiret = result.siret;
-                if (currentSiret !== newSiret) {
-                    if (!currentSiret) {
+                var apiName = result.name || '';
+                
+                // 1. Mise à jour du SIRET (si changé OU si présentait des espaces)
+                if (cleanedSiret !== newSiret || rawSiret !== newSiret) {
+                    if (!cleanedSiret) {
                         countFilled++;
-                        _addLog("✅ Trouvé pour " + name + " : " + newSiret);
-                    } else {
+                        _addLog("✅ Trouvé pour " + currentName + " : " + newSiret);
+                    } else if (cleanedSiret !== newSiret) {
                         countCorrected++;
-                        _addLog("🔄 Corrigé pour " + name + " : " + newSiret);
+                        _addLog("🔄 Corrigé pour " + currentName + " : " + newSiret);
+                    } else {
+                        // C'est juste un nettoyage d'espaces
+                        _addLog("✨ Nettoyage SIRET : " + currentName);
                     }
                     siretValues[i][0] = "'" + newSiret; // Forcer texte
+                    hasChanges = true;
+                }
+                
+                // 2. Mise à jour du NOM (si on a un nom API et qu'il diffère)
+                if (apiName && nameValues && currentName !== apiName) {
+                    _addLog("🏢 Nom officiel : " + apiName);
+                    nameValues[i][0] = apiName;
                     hasChanges = true;
                 }
             }
@@ -1578,6 +1595,7 @@ function enrichment_validateSiret() {
         // Écriture en une seule fois du lot si changements
         if (hasChanges) {
             siretRange.setValues(siretValues);
+            if (nameRange && nameValues) nameRange.setValues(nameValues);
             _addLog("📥 Lot " + currentBatchNum + " : Mise à jour effectuée.");
         }
     }
