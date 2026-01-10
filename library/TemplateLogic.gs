@@ -1631,7 +1631,11 @@ function _lookupSirene(name, currentSiret, zip, city) {
                 if (json.results && json.results.length > 0) {
                     var found = json.results[0];
                     if (found.matching_etablissements && found.matching_etablissements[0].siret === currentSiret) {
-                        return { siret: currentSiret, valid: true };
+                        return { 
+                            siret: currentSiret, 
+                            name: found.nom_complet || found.nom_raison_sociale, 
+                            valid: true 
+                        };
                     }
                 }
             } else {
@@ -1652,7 +1656,11 @@ function _lookupSirene(name, currentSiret, zip, city) {
             if (json.results && json.results.length > 0) {
                 var result = json.results[0];
                 if (result.matching_etablissements && result.matching_etablissements.length > 0) {
-                    return { siret: result.matching_etablissements[0].siret, valid: true };
+                    return { 
+                        siret: result.matching_etablissements[0].siret, 
+                        name: result.nom_complet || result.nom_raison_sociale, 
+                        valid: true 
+                    };
                 }
             } else {
                 _addLog("❓ Aucun résultat pour : " + name);
