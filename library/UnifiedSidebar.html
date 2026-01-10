@@ -405,6 +405,11 @@
             <h3>📞 Formatage</h3>
             <button type="button" id="formatPhonesBtn">Formater les numéros de téléphone</button>
 
+            <div class="section-divider"></div>
+
+            <h3>🏢 Entreprises (France)</h3>
+            <button type="button" id="validateSiretBtn" class="secondary">Valider les SIRET (SIRENE)</button>
+
             <div class="loading" id="enrichment-loading">Traitement en cours...</div>
             <div id="enrichment-status" class="status"></div>
         </div>
@@ -537,6 +542,8 @@
             safeAddListener('validateAddressesBtn', 'click', handleValidateAddresses);
             safeAddListener('formatPhonesBtn', 'click', handleFormatPhones);
             safeAddListener('populateStatesBtn', 'click', handlePopulateStates); // Added missing listener
+
+            safeAddListener('validateSiretBtn', 'click', handleValidateSiret);
 
             // Export
             safeAddListener('stop-export-btn', 'click', stopExportProcess);
@@ -702,6 +709,24 @@
                     showEnrichmentStatus('Erreur: ' + err.message, 'error');
                 })
                 .enrichment_formatPhones();
+        }
+
+        function handleValidateSiret() {
+            showConsole('Validation SIRET (SIRENE)');
+            startPolling();
+            setEnrichmentLoading(true);
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    setEnrichmentLoading(false);
+                    hideConsole(1000);
+                    showEnrichmentStatus(result.message, result.success ? 'success' : 'error');
+                })
+                .withFailureHandler(function (err) {
+                    setEnrichmentLoading(false);
+                    hideConsole(0);
+                    showEnrichmentStatus('Erreur: ' + err.message, 'error');
+                })
+                .enrichment_validateSiret();
         }
 
         function setEnrichmentLoading(isLoading) {

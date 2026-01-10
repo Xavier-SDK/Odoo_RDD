@@ -1470,6 +1470,153 @@ function validateAddressWithGoogle(addressData, apiKey) {
 }
 
 /**
+ * Valide et complète les numéros SIRET via l'API SIRENE
+ */
+function enrichment_validateSiret() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var activeSheet = ss.getActiveSheet();
+    var sheetId = activeSheet.getSheetId().toString();
+    
+    // Récupérer le mapping des champs
+    var mappings = readSmartTable('ODOO_FIELDS');
+    var sheetMappings = mappings.filter(function(m) { return String(m['ID Onglet']) === sheetId; });
+    
+    if (sheetMappings.length === 0) {
+      return { success: false, message: 'Veuillez d\'abord mapper les champs Odoo.' };
+    }
+    
+    // Détecter les colonnes nécessaires
+    var fields = { name: null, vat: null, zip: null, city: null, country: null };
+    var headers = activeSheet.getRange(1, 1, 1, activeSheet.getLastColumn()).getValues()[0];
+    
+    sheetMappings.forEach(function(m) {
+      var odooField = m['Champ Odoo'];
+      var colIndex = headers.indexOf(m['Entête']);
+      if (colIndex >= 0) {
+        if (odooField === 'name') fields.name = colIndex + 1;
+        else if (odooField === 'vat' || odooField === 'siret') fields.vat = colIndex + 1;
+        else if (odooField === 'zip') fields.zip = colIndex + 1;
+        else if (odooField === 'city') fields.city = colIndex + 1;
+        else if (odooField === 'country_id') fields.country = colIndex + 1;
+      }
+    });
+    
+    if (!fields.name || !fields.vat) {
+      return { success: false, message: 'Mappage manquant : "name" (Nom) et "vat" (SIRET) sont requis.' };
+    }
+    
+    var lastRow = activeSheet.getLastRow();
+    if (lastRow < 2) return { success: false, message: 'Aucune donnée.' };
+    
+    var data = activeSheet.getRange(2, 1, lastRow - 1, activeSheet.getLastColumn()).getValues();
+    var updates = [];
+    var countCorrected = 0;
+    var countFilled = 0;
+    
+    _updateProgress(0, "Analyse des données...");
+    
+    for (var i = 0; i < data.length; i++) {
+        var rowNum = i + 2;
+        var name = fields.name ? data[i][fields.name - 1].toString().trim() : '';
+        var currentSiret = fields.vat ? data[i][fields.vat - 1].toString().trim().replace(/\s/g, '') : '';
+        var zip = fields.zip ? data[i][fields.zip - 1].toString().trim() : '';
+        var city = fields.city ? data[i][fields.city - 1].toString().trim() : '';
+        var country = fields.country ? data[i][fields.country - 1].toString().trim().toUpperCase() : '';
+        
+        // Filtre : Uniquement France (FR ou France ou vide si CP/Ville suggèrent la France)
+        var isFrance = (country === 'FR' || country === 'FRANCE' || country === '' || country === '1'); 
+        if (!isFrance || !name) continue;
+        
+        var percent = Math.round((i / data.length) * 100);
+        if (i % 5 === 0) _updateProgress(percent, "Vérification : " + name);
+        
+        var result = _lookupSirene(name, currentSiret, zip, city);
+        
+        if (result && result.siret) {
+            var newSiret = result.siret;
+            if (currentSiret !== newSiret) {
+                if (!currentSiret) countFilled++;
+                else countCorrected++;
+                
+                updates.push({ row: rowNum, value: newSiret });
+                Logger.log('Ligne ' + rowNum + ': SIRET ' + (currentSiret ? 'corrigé' : 'trouvé') + ' -> ' + newSiret + ' (' + name + ')');
+            }
+        }
+        
+        // Respecter les quotas de l'API (env. 7 requêtes par seconde max conseillé)
+        Utilities.sleep(150);
+    }
+    
+    // Appliquer les mises à jour
+    if (updates.length > 0) {
+        updates.forEach(function(u) {
+            activeSheet.getRange(u.row, fields.vat).setValue("'" + u.value); // Forcer format texte
+        });
+    }
+    
+    _updateProgress(100, "Terminé");
+    return { 
+        success: true, 
+        message: 'Traitement SIRENE terminé. ' + countFilled + ' SIRET renseignés, ' + countCorrected + ' SIRET corrigés.' 
+    };
+    
+  } catch (e) {
+    Logger.log('Erreur enrichment_validateSiret: ' + e.toString());
+    _updateProgress(0, "Erreur");
+    return { success: false, message: e.toString() };
+  }
+}
+
+/**
+ * Interroge l'API Recherche Entreprises
+ * @private
+ */
+function _lookupSirene(name, currentSiret, zip, city) {
+    var baseUrl = 'https://recherche-entreprises.api.gouv.fr/search?';
+    
+    // 1. Tenter d'abord de valider le SIRET actuel s'il existe
+    if (currentSiret && currentSiret.length === 14) {
+        try {
+            var url = baseUrl + 'q=' + currentSiret + '&limite=1';
+            var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+            if (resp.getResponseCode() === 200) {
+                var json = JSON.parse(resp.getContentText());
+                if (json.results && json.results.length > 0) {
+                    var found = json.results[0];
+                    // Si on trouve exactement le même SIRET, on considère qu'il est correct
+                    if (found.matching_etablissements && found.matching_etablissements[0].siret === currentSiret) {
+                        return { siret: currentSiret, valid: true };
+                    }
+                }
+            }
+        } catch (e) {}
+    }
+    
+    // 2. Si SIRET absent ou non trouvé, chercher par Nom + Adresse
+    try {
+        var query = encodeURIComponent(name + ' ' + zip + ' ' + city);
+        var url = baseUrl + 'q=' + query + '&limite=1';
+        var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+        
+        if (resp.getResponseCode() === 200) {
+            var json = JSON.parse(resp.getContentText());
+            if (json.results && json.results.length > 0) {
+                var result = json.results[0];
+                // On privilégie l'établissement qui matche la requête
+                if (result.matching_etablissements && result.matching_etablissements.length > 0) {
+                    return { siret: result.matching_etablissements[0].siret, valid: true };
+                }
+            }
+        }
+    } catch (e) {
+        Logger.log('Erreur _lookupSirene (' + name + '): ' + e.toString());
+    }
+    
+    return null;
+}
+
+/**
  * Convertit un nom de pays en code ISO 2 lettres
  * @param {string} countryName - Nom du pays (français ou anglais)
  * @return {string} Code ISO 2 lettres
